@@ -1,0 +1,661 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Linear Algebra -- course project report template, Autumn 2026
+%% Ukrainian Catholic University, Faculty of Applied Sciences,
+%% Data Science Master Programme
+%%
+%% The title page is adapted from a template by WikiBooks, distributed
+%% by LaTeXTemplates.com under CC BY-NC-SA 3.0.
+%%
+%% HOW TO USE THIS TEMPLATE
+%%   1. Fill in the block marked "FILL IN" below: the stage of the report,
+%%      the title, the authors, the project card and the links.
+%%   2. One file serves all three milestones. Keep working in the same
+%%      file: interim report 1 grows into interim report 2, and that grows
+%%      into the final report.
+%%   3. Replace the grey guidance boxes with your own text. Before you
+%%      submit, set \showguidefalse so that any box you forgot disappears.
+%%   4. Do NOT change the font size, the paper size or the margins.
+%%      Page limits are counted in this format.
+%%   5. Compile with pdfLaTeX (the Overleaf default). The folder must
+%%      contain UCU-Apps.png (the logo); the example figure uses an image
+%%      shipped with every TeX distribution.
+%%
+%% PAGE LIMITS (counted automatically; see the end of the log file)
+%%   Interim reports 1 and 2: 2 pages, project card included.
+%%   Final report: at most 10 pages from the abstract to the end of the
+%%   Conclusion, figures and tables included. The title page, the
+%%   references and the appendices are not counted.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[11pt,a4paper]{article}
+
+%----------------------------------------------------------------------
+%  Page layout: do not change
+%----------------------------------------------------------------------
+\usepackage[a4paper,left=20mm,right=20mm,top=20mm,bottom=25mm,
+            headheight=14pt,marginparwidth=16mm]{geometry}
+
+%----------------------------------------------------------------------
+%  Packages
+%----------------------------------------------------------------------
+\usepackage[english]{babel}
+% T1 encoding only together with the scalable Latin Modern fonts
+% (standard on Overleaf); otherwise fall back to the default encoding.
+\IfFileExists{lmodern.sty}{\usepackage[T1]{fontenc}\usepackage{lmodern}}{}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs,tabularx}
+\usepackage{caption,subcaption}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{fancyhdr}
+\usepackage{refcount}
+\usepackage{listings}
+\usepackage[ruled,vlined,linesnumbered]{algorithm2e}
+% Margin notes are useful while drafting. Add the option "disable"
+% before you submit, or simply delete your \todo{} commands.
+\usepackage[colorinlistoftodos,textsize=scriptsize]{todonotes}
+\usepackage[colorlinks=true,linkcolor=MidnightBlue,citecolor=MidnightBlue,
+            urlcolor=MidnightBlue]{hyperref}   % load hyperref last
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%  FILL IN
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Stage of the report: 1 = interim report 1 (scoping memo),
+%                      2 = interim report 2 (working baseline),
+%                      3 = final report
+\newcommand{\stage}{1}
+
+\newcommand{\reporttitle}{Low-Rank Spectral Fingerprints for AI-Generated Music Detection}
+\newcommand{\shorttitle}{Low-rank spectrograms for AI-music detection}
+\newcommand{\reportauthors}{Iryna Matvieieva \quad Petro Mozil}
+
+% Project card: one line each. Keep it consistent with your registration;
+% if something has changed, update it here and say so in the report.
+\newcommand{\carddomain}{Audio forensics / music provenance}
+\newcommand{\cardmethod}{STFT magnitude spectrograms; exact and randomized SVD}
+\newcommand{\cardobject}{For each 10-s mono clip, $M\in\mathbb{R}_{\geq0}^{1025\times T}$, with $T\approx431$; analyse the leading $k=20$ singular values}
+\newcommand{\cardalgorithms}{Own randomized SVD ($k=20$, oversampling $p=10$, one power step); exact NumPy/LAPACK SVD as reference}
+\newcommand{\carddata}{FakeMusicCaps (subset), paired with retrievable original MusicCaps clips~\cite{FakeMusicCaps}}
+\newcommand{\cardcode}{\url{https://github.com/pmozil/music-ai-spectra}}
+\newcommand{\cardvideo}{\url{https://link-to-your-recording}} % final only
+
+% Guidance boxes: set \showguidefalse before you submit.
+\newif\ifshowguide
+\showguidetrue
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%  Template machinery: no need to read further than the next block
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Notation used in the course. Add your own macros here.
+\newcommand{\bR}{\mathbb{R}}
+\newcommand{\bC}{\mathbb{C}}
+\newcommand{\ba}{\mathbf{a}}
+\newcommand{\bb}{\mathbf{b}}
+\newcommand{\bu}{\mathbf{u}}
+\newcommand{\bv}{\mathbf{v}}
+\newcommand{\bx}{\mathbf{x}}
+\newcommand{\by}{\mathbf{y}}
+\newcommand{\bz}{\mathbf{z}}
+\DeclareMathOperator{\rank}{rank}
+\DeclareMathOperator{\cond}{cond}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator{\trace}{trace}
+\DeclareMathOperator{\nnz}{nnz}
+\DeclareMathOperator*{\argmin}{argmin}
+
+% Theorem-like environments, numbered within sections
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+% Code listings
+\lstset{language=Python, basicstyle=\ttfamily\small, columns=fullflexible,
+  keepspaces=true, frame=lines, numbers=left, numberstyle=\tiny\color{gray},
+  commentstyle=\color{gray}, keywordstyle=\color{MidnightBlue}\bfseries,
+  showstringspaces=false, breaklines=true}
+
+% Guidance boxes
+\newcommand{\guide}[1]{\ifshowguide\par\smallskip\noindent
+  \colorbox{gray!12}{\parbox{\dimexpr\linewidth-2\fboxsep}{\small\itshape
+  \textbf{Guidance.} #1}}\par\smallskip\fi}
+
+% Stage names
+\newcommand{\stagename}{\ifcase\stage\or Interim report 1: scoping memo\or
+  Interim report 2: working baseline\or Final report\fi}
+
+% Running heads
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\shorttitle}
+\fancyhead[R]{\small\stagename}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% Project card
+\newcommand{\projectcard}{%
+  \noindent
+  \begin{tabularx}{\linewidth}{@{}>{\raggedright\bfseries}p{3.0cm}
+                                  >{\raggedright\arraybackslash}X@{}}
+    \toprule
+    Domain        & \carddomain \\
+    Method family & \cardmethod \\
+    LA object     & \cardobject \\
+    Algorithms    & \cardalgorithms \\
+    Data          & \carddata \\
+    \ifnum\stage>1 Code & \cardcode \\ \fi
+    \ifnum\stage=3 Recording & \cardvideo \\ \fi
+    \bottomrule
+  \end{tabularx}\par}
+
+% Page counting: the main body runs from \bodystart to \bodyend
+\newcommand{\pagelimit}{\ifnum\stage=3 10\else 2\fi}
+\newcommand{\bodystart}{\label{body-start}}
+\newcommand{\bodyend}{\label{body-end}}
+\AtEndDocument{%
+  \refused{body-start}\refused{body-end}%
+  \edef\bodypages{\number\numexpr\getpagerefnumber{body-end}
+    -\getpagerefnumber{body-start}+1\relax}%
+  \typeout{}%
+  \typeout{*** Main body: \bodypages\space page(s); limit \pagelimit.}%
+  \typeout{}%
+  \ifnum\bodypages>\pagelimit\relax
+    \PackageWarningNoLine{LA-template}{Main body has \bodypages\space pages,
+      above the limit of \pagelimit}%
+  \fi}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{document}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\ifnum\stage=3
+%----------------------------------------------------------------------
+%  Final report: title page (not counted)
+%----------------------------------------------------------------------
+\begin{titlepage}
+  \centering
+  {\large\scshape Ukrainian Catholic University\par}
+  {\scshape Faculty of Applied Sciences\quad$\cdot$\quad
+    Data Science Master Programme\par}
+  \vspace{1.6cm}
+  \rule{\linewidth}{0.5mm}\par\vspace{0.4cm}
+  {\LARGE\bfseries \reporttitle\par}
+  \vspace{0.3cm}
+  {\large Linear Algebra: course project, final report\par}
+  \vspace{0.2cm}
+  \rule{\linewidth}{0.5mm}\par
+  \vspace{1.2cm}
+  {\large\emph{Authors:}\par\smallskip \reportauthors\par}
+  \vspace{1.2cm}
+  \projectcard
+  \vfill
+    \IfFileExists{UCU-Apps.png}{\includegraphics[height=4cm]{UCU-Apps.png}\par}{}
+  \vspace{0.2cm}
+  {\large \today\par}
+\end{titlepage}
+
+%----------------------------------------------------------------------
+%  Abstract: opens the first page of the main body
+%----------------------------------------------------------------------
+\bodystart
+\begin{abstract}
+\guide{Five to eight sentences: the problem, the linear-algebra object,
+the methods you compared, the main quantitative result, and the main
+limitation. Write it last.}
+We compare two algorithms for completing a partially observed ratings
+matrix by a matrix of low rank~\cite[Sec.~III.5]{Strang}.
+\end{abstract}
+
+\else
+%----------------------------------------------------------------------
+%  Interim reports: compact header and project card (counted)
+%----------------------------------------------------------------------
+\bodystart
+\begin{center}
+  {\Large\bfseries \reporttitle\par}
+  \medskip
+  {\large \stagename\par}
+  \smallskip
+  \begin{tabular}{c}\reportauthors\end{tabular}\par
+  \smallskip
+  {\small Linear Algebra, UCU Data Science Master Programme, \today\par}
+\end{center}
+\projectcard
+\medskip
+\fi
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Problem and motivation}
+\label{sec:problem}
+
+The detection of AI-generated music has proven a problem
+for platforms, rights holders and listeners. In this work,
+we intend to distinguish AI-generated audio from human-generated audio.
+Given a short audio clip, we predict human-origin versus text-to-music-generated.
+We do so by checking whether the low-rank structure of its STFT magnitude
+spectrogram supports this distinction on held-out clips,
+rather than create a universal detector. Prior work also warns that
+strong controlled results may not generalize across manipulations
+or datasets~\cite{Afchar,LiBench}, so we try to balance classes
+and group each original/synthetic caption pair in the same data split.
+
+Success is held-out balanced accuracy $\geq0.65$, with the lower
+bound of a 95\% confidence interval above $0.50$.
+Separately, randomized SVD should achieve relative $\ell_2$
+error $\leq10^{-2}$ in the first 20 normalized squared singular-value
+features on at least 95\% of test clips, relative to exact SVD.
+If the classification threshold is not met,
+we should deem these features insufficient in this setup.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Linear-algebra formulation}
+\label{sec:formulation}
+
+Each clip is resampled to 22.05 kHz. A centred STFT
+(window/FFT length 2048, hop 512) gives a nonnegative
+magnitude matrix $M\in\mathbb{R}_{\geq0}^{F\times T}$,
+where $F=1025$ and $T\approx431$ for ten seconds.
+Its singular value decomposition is
+
+\begin{equation}\label{eq:svd}
+  M=U\Sigma V^\top,\qquad \sigma_1\geq\sigma_2\geq\cdots\geq0.
+\end{equation}
+
+We use $z=(p_1,\ldots,p_{20})$ as features for logistic regression,
+where $p_i=\sigma_i^2/\|M\|_F^2$ and $\|M\|_F^2=\sum_i\sigma_i^2$.
+The features summarize the distribution of spectrogram energy across
+orthogonal components.
+
+The LA task is to compute or approximate the leading singular values
+and test whether this low-rank summary preserves class information.
+Because the features discard phase and temporal ordering,
+useful cues may be lost even with an accurate decomposition.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Methods}
+\label{sec:methods}
+
+\subsection{Exact thin SVD}
+
+A standard dense SVD gives the comparison values and
+the optimal rank-$k$ approximation for the Frobenius norm
+by the Eckart--Young--Mirsky theorem.
+
+For $F\geq T$, its cost is $O(FT^2+T^3)$ flops and $O(FT)$ storage.
+It is accurate and straightforward, but repeats work for every clip.
+In our case, we will have moderate matrix sizes, and so it may already be fast,
+limiting the practical speedup available to a randomized method.
+Small singular values can also be sensitive to rounding,
+and an accurate decomposition does not guarantee useful detection features.
+
+NumPy`s \textrm{np.linalg.svd} uses LAPACK`s \textrm{\_gesdd} routine
+to calculate SVD. \textrm{\_gesdd} implements a divide-and-conquer algorithm
+on a bidiagonal (diagonal with entries non-zero above or below main diagonal)
+matrix. It divides the matrix into sizes that are convenient for QR iteration
+for SVD calculation, and then accumulates the results.
+
+We left out the algorithm pseudo-code for the \textrm{\_gesdd} implementation for brevity.
+
+% \begin{algorithm}[ht]
+% \caption{Householder divide-and-conquer thin SVD}\label{alg:householder_dnc_svd}
+%
+% \KwIn{$A\in\mathbb{R}^{F\times T}$ with $F\ge T$}
+%
+% \KwOut{Thin SVD factors: $U\in\mathbb{R}^{F\times T}$, singular values $\mathbf{s}\in\mathbb{R}^{T}$, $V\in\mathbb{R}^{T\times T}$}
+%
+% \tcp*{Phase 1: Householder reduction to upper bidiagonal form}
+%
+% Compute Householder reflections to reduce $A$ to bidiagonal $B\in\mathbb{R}^{T\times T}$:
+%
+% $A \gets U_1 B V_1^\top$\tcp*{Cost: $O(FT^2 - \frac{1}{3}T^3)$ flops}
+%
+% \medskip
+%
+% \SetKwProg{Fn}{Function}{}{end}\SetKwFunction{FRecurs}{FnRecursive}%
+% \newcommand{\forcond}{$i=0$ \KwTo $n$}
+%
+% \tcp*{Phase 2: Divide-and-conquer SVD on the bidiagonal matrix}
+% \Fn{\text{BidiagDivideAndConquer}($B$)}{
+% \If{$\text{size}(B)$ is small enough}{
+% Compute SVD directly via QR iteration: $B = \tilde{U}\operatorname{diag}(\mathbf{s})\tilde{V}^\top$;
+% \Return $\tilde{U}$, $\mathbf{s}$, $\tilde{V}$;
+% }
+%
+% Split $B$ into independent sub-bidiagonal blocks $B_1$ and $B_2$;
+% $(\tilde{U}_1, \mathbf{s}_1, \tilde{V}_1) \gets \text{BidiagDivideAndConquer}({B}_1)$;
+% $(\tilde{U}_2, \mathbf{s}_2, \tilde{V}_2) \gets \text{BidiagDivideAndConquer}({B}_2)$;
+%
+% Merge subproblems using secular equations to obtain $B = U_2 \operatorname{diag}(\mathbf{s}) V_2^\top$;
+%
+% \Return $U_2$, $\mathbf{s}$, $V_2$;
+% }
+%
+% $(U_2, \mathbf{s}, V_2) \gets \text{BidiagDivideAndConquer}(B)$;
+% \medskip
+%
+% \tcp*{Phase 3: Accumulate orthogonal transformations}
+%
+% $U \gets U_1 U_2$;\quad $V \gets V_1 V_2$;
+%
+% \Return{$U$, $\mathbf{s}$, $V$}
+% \end{algorithm}
+
+\medskip\noindent\textbf{Cost.} Phase 1 requires $O(FT^2 - \frac{1}{3}T^3)$
+flops for Householder bidiagonalization.
+Phase 2 (divide-and-conquer) and Phase 3 (vector accumulation) require $O(T^3)$ flops.
+Total arithmetic cost is $O(FT^2 + T^3)$, but the divide-and-conquer conquering
+step heavily benefits from parallel matrix-matrix operations,
+making it much faster in practice than sequential QR iteration for large dimensions.
+
+\begin{lstlisting}[caption={Singular Value Decomposition in NumPy.},label={lst:power}]
+import numpy as np
+
+def householder_dnc_thin_svd(A):
+    U, s, Vt = np.linalg.svd(A)
+    return U, s, Vt
+\end{lstlisting}
+
+\subsection{Randomized SVD}
+
+Following the randomized range-finding framework of Halko, Martinsson,
+and Tropp~\cite{Halko}, the core idea of randomized SVD is to capture the essential column space (range)
+of a matrix $A \in \mathbb{R}^{F \times T}$ using a low-dimensional random projection before
+performing an exact factorization. The procedure unfolds in four main stages:
+
+We wish to find a low-rank approximation of rank $k$.
+Instead of examining all $T$ dimensions, we draw a random test matrix
+$\mathbf{\Omega} \in \mathbb{R}^{T \times \ell}$ whose entries are independent
+and identically distributed standard Gaussian variables, $\mathbf{\Omega}_{ij} \sim \mathcal{N}(0, 1)$.
+
+The sketch dimension $\ell$ is chosen slightly larger than
+the target rank $k$ via an oversampling parameter $p$
+(e.g., $k=20$, $p=10$, yielding $\ell = 30$).
+
+Multiplying $A$ by $\mathbf{\Omega}$ forms the sketch matrix:
+\begin{equation}
+  Y = A\mathbf{\Omega} \in \mathbb{R}^{F \times \ell}
+\end{equation}
+
+If the singular values of $A$ decay slowly, the random sketch
+alone may capture too much noise from the tail of the spectrum.
+To sharpen the separation between the dominant components and the
+trailing noise, we apply $q=1$ power iteration steps (subspace iteration).
+This alternates multiplications by $A$ and $A^\top$ to damp out lesser singular values:
+\begin{align}
+  \tilde{Y} &= A^\top Q, \quad &\text{QR factorization: } \tilde{Y} = \tilde{Q} \tilde{R} \\
+  Y &= A \tilde{Q}, \quad &\text{QR factorization: } Y = Q R
+\end{align}
+
+This accelerates the spectral decay rate without requiring a full matrix factorization.
+
+Once the refined orthonormal basis $Q$ is established,
+we project the original matrix $A$ onto this lower-dimensional subspace to form a much smaller matrix $B$:
+
+\begin{equation}
+  B = Q^\top A \in \mathbb{R}^{\ell \times T}
+\end{equation}
+
+Because $\ell \ll T$, computing the exact SVD of $B$ via
+standard routines (e.g., LAPACK's $\_gesdd$) is relatively fast.
+
+\begin{equation}
+  B = \tilde{U} \mathbf{s} V^\top
+\end{equation}
+
+Finally, we map the left singular vectors back to the original
+space by setting $U = Q \tilde{U}$, and truncate all factors to the target rank $k$.
+
+\begin{algorithm}[ht]
+  \caption{Randomized SVD with Power Step}\label{alg:rsvd}
+
+  \KwIn{Matrix $A \in \mathbb{R}^{F \times T}$ ($F \ge T$), target rank $k$, oversampling parameter $p$, power iterations $q$}
+
+  \KwOut{Rank-$k$ SVD factors: $U_k \in \mathbb{R}^{F \times k}$, $\mathbf{s}_k \in \mathbb{R}^{k}$, $V_k \in \mathbb{R}^{T \times k}$}
+
+  $\ell \gets k + p$\tcp*{Total sketch dimension, $\ell \approx 30$}
+
+  Draw Gaussian random matrix $\mathbf{\Omega} \in \mathbb{R}^{T \times \ell}$ where $\mathbf{\Omega}_{ij} \sim \mathcal{N}(0, 1)$\;
+
+  $Y \gets A \mathbf{\Omega}$\tcp*{Form initial sketch: $O(FT\ell)$ flops}
+
+  \tcp*{Power iteration to accelerate singular value decay}
+  \For{$i = 1 \text{ to } q$}{
+    $Q, \_ \gets \operatorname{qr}(Y)$\;
+    $\tilde{Y} \gets A^\top Q$\;
+    $\tilde{Q}, \_ \gets \operatorname{qr}(\tilde{Y})$\;
+    $Y \gets A \tilde{Q}$\;
+  }
+  $Q, \_ \gets \operatorname{qr}(Y)$\tcp*{Orthonormal basis for range of $A$: $O(F\ell^2)$ flops}
+
+  \medskip
+  \tcp*{Project and perform small SVD}
+  $B \gets Q^\top A$\tcp*{Compress matrix to dimension $\ell \times T$: $O(FT\ell)$ flops}
+  $\tilde{U}, \mathbf{s}, V^\top \gets \operatorname{SVD}(B)$\tcp*{Exact SVD on reduced matrix: $O(T\ell^2)$ flops}
+
+  \medskip
+  \tcp*{Reconstruct full left singular vectors and truncate to rank $k$}
+  $U \gets Q \tilde{U}$\;
+  $U_k \gets U[:, 1:k]$;\quad $\mathbf{s}_k \gets \mathbf{s}[1:k]$;\quad $V_k \gets V[:, 1:k]$\;
+  \Return{$U_k$, $\mathbf{s}_k$, $V_k$}
+\end{algorithm}
+
+\medskip\noindent\textbf{Cost.}
+With $q$ power steps, the overall flop count is $O((2q+1)FT\ell + (F+T)\ell^2)$,
+and memory requirement is bounded by $O(FT + (F+T)\ell)$. Because $\ell \ll T$,
+the dense SVD phase runs in $O(T\ell^2)$ time instead of $O(T^3)$.
+
+\begin{lstlisting}[caption={Randomized SVD with $q=1$ power step in NumPy.},label={lst:rsvd}]
+import numpy as np
+
+def randomized_svd(A, k=20, p=10, q=1):
+    F, T = A.shape
+    ell = k + p
+
+    # Draw Gaussian random test matrix
+    Omega = np.random.normal(size=(T, ell))
+    Y = A @ Omega
+
+    # Power iteration (q steps)
+    for _ in range(q):
+        Q, _ = np.linalg.qr(Y)
+        Y_tilde = A.T @ Q
+        Q_tilde, _ = np.linalg.qr(Y_tilde)
+        Y = A @ Q_tilde
+
+    # Final orthogonalization for the range space
+    Q, _ = np.linalg.qr(Y)
+
+    # Project A into smaller subspace and compute exact SVD
+    B = Q.T @ A
+    U_tilde, s, Vt = np.linalg.svd(B, full_matrices=False)
+
+    # Reconstruct original left singular vectors
+    U = Q @ U_tilde
+
+    # Truncate to target rank k
+    return U[:, :k], s[:k], Vt[:k, :].T
+\end{lstlisting}
+
+\subsection{Cost and failure modes}
+
+Randomized SVD is a low-rank approximation of thin SVD.
+It only computes the singular value for a random subspace of a matrix,
+and might be vulnerable to flat spectra (ones, where $|\sigma_{k+1}/\sigma_k| \approx 1$).
+Unlike regular SVD, randomized SVD does not rely on reduction to the bidiagonal form,
+rather, the bulk of the computation is the matrix multiplication during the power iteration step.
+
+Exact SVD requires storing intermediate orthogonal transformation
+matrices and workspaces that scale with $T^2$ and randomized SVD operates primarily on
+compressed sketch matrices of size $\ell = k + p$ (where $\ell \ll T$), and so it requires substantially less memory.
+
+Randomized SVD does not handle ill-conditioned matrices well.
+Should the spectrum of a matrix decay slowly, the power iteration step
+would not capture the matrice`s spectrum in the randomized subspace well.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Implementation and experiments}
+\label{sec:experiments}
+
+
+\subsection{Setup}
+
+The project will be implemented in Python using NumPy and SciPy for
+linear algebra and signal processing, with scikit-learn for the
+baseline classifier and evaluation metrics.
+
+Audio preprocessing should use a common pipeline:
+conversion to mono at 16\,kHz, low-pass
+filtering at 7\,kHz, loudness normalisation, and a common
+MP3 encode/decode step.
+
+The datasets are FakeMusicCaps and the corresponding human-made MusicCaps
+clips, paired by their original captions. We will
+balance the classes and split the data by caption
+to prevent related examples from appearing in both training and
+test sets.
+
+For each clip, we need to compute a log-magnitude STFT spectrogram and
+extract singular-value features, including entropy-based effective
+rank and energy concentration. We also compute principal angles
+between the leading left singular subspaces of consecutive
+spectrogram windows. A simple bandwidth-only classifier will serve
+as a diagnostic baseline for detecting pipeline-related differences.
+The current implementation is being developed and tested on small
+subsets before the full dataset is processed.
+
+\subsection{Results}
+
+The initial experiments will compare the proposed features with the
+bandwidth-only baseline using balanced accuracy and ROC-AUC on a
+held-out test set. We will also investigate the relationship between
+the singular-value spectrum and temporal subspace stability, and
+whether these features generalise across different generated clips.
+
+Exact SVD is expected to be inexpensive for individual
+spectrograms, so it will be used as the reference method for
+per-clip features. Randomized SVD will instead be applied to a
+larger matrix formed by stacking spectrogram frames from training
+clips, allowing us to learn a shared spectral basis.
+
+We will report quantitative results on real audio
+after we retrieve and process the datasets.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Discussion and limitations}
+\label{sec:discussion}
+
+The main risk is that AI-generated and human-made clips may come
+from different audio pipelines. Differences in sampling rate,
+YouTube compression, bandwidth, mastering, or loudness could create
+spectral cues unrelated to the process that generated the music.
+Resampling, common low-pass filtering, loudness normalisation, and
+common codec processing should reduce some of these differences,
+but cannot guarantee their removal. The bandwidth-only baseline
+will help reveal whether simple technical artifacts already
+predict the class labels.
+
+A second limitation is that low-rank spectral structure is not
+necessarily unique to AI-generated music. Human recordings and
+generated music can both contain strong redundancy, while different
+generators may produce different spectral characteristics.
+For this, principal angles between consecutive windows should provide
+a concrete measure of subspace change,
+but, for classification, they might not be of much use.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Conclusion}
+\label{sec:conclusion}
+
+\guide{What you achieved, the main difficulties, and what you would do
+next. Half a page is enough.}
+
+\ifnum\stage<3
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Plan and division of work}
+\label{sec:plan}
+
+\guide{Interim reports only; this section disappears from the final
+report. \emph{Interim report 1}: the planned steps and who does what.
+\emph{Interim report 2}: what is not working yet, any change of plan,
+and the outline of the final report.}
+\fi
+
+\bodyend
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%  References (not counted)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Cite only sources you have actually read. Give a DOI or a link where
+% one exists. Cite the datasets and the main software you used.
+\begin{thebibliography}{9}
+
+\bibitem{FakeMusicCaps}
+L. Comanducci, P. Bestagini and S. Tubaro,
+``FakeMusicCaps: A Dataset for Detection and Attribution of Synthetic Music Generated via Text-to-Music Models,''
+\emph{Journal of Imaging}, vol. 11, no. 7, article 242, 2025.
+\href{https://doi.org/10.3390/jimaging11070242}{doi:10.3390/jimaging11070242}.
+
+\bibitem{Afchar}
+D. Afchar, G. Meseguer-Brocal and R. Hennequin,
+``AI-Generated Music Detection and its Challenges,'' in
+\emph{Proc. IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)}, 2025.
+\href{https://doi.org/10.1109/ICASSP49660.2025.10890655}{doi:10.1109/ICASSP49660.2025.10890655}.
+
+\bibitem{LiBench}
+Y. Li, Q. Sun, H. Li, L. Specia and B. W. Schuller,
+``Explainable detection of machine generated music and early systematic evaluation,''
+\emph{Scientific Reports}, vol. 16, article 13757, 2026.
+\href{https://doi.org/10.1038/s41598-026-42133-7}{doi:10.1038/s41598-026-42133-7}.
+
+\bibitem{Halko}
+N. Halko, P. G. Martinsson and J. A. Tropp,
+``Finding Structure with Randomness: Probabilistic Algorithms for Constructing Approximate Matrix Decompositions,''
+\emph{SIAM Review}, vol. 53, no. 2, pp. 217--288, 2011.
+\href{https://doi.org/10.1137/090771806}{doi:10.1137/090771806}.
+
+\end{thebibliography}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%  Appendices (not counted)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\ifnum\stage=3
+\appendix
+
+\section{Contribution statement}
+
+\guide{Required. Who did what, agreed by all members. Staff may adjust
+an individual grade if contributions are clearly unequal.}
+
+\noindent
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+  \toprule
+  Member & Contribution \\
+  \midrule
+  A.~A.~Lovelace & \dots \\
+  C.~Babbage     & \dots \\
+  \bottomrule
+\end{tabularx}
+
+\section{AI-use statement}
+
+\guide{Required. Which AI tools you used and for what: code, language
+editing, finding literature. Every member must be able to explain every
+equation and every line of the core code. If you used none, say so.}
+
+\section{Additional results}
+
+\guide{Optional. Proofs, extra figures and tables that support the main
+text. Reviewers are not required to read the appendices, so everything
+needed to follow the report belongs in the main body.}
+\fi
+
+\end{document}

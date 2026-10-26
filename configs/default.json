@@ -1,0 +1,22 @@
+{
+  "sample_rate": 16000,
+  "duration_seconds": 10.0,
+  "lowpass_hz": 7000,
+  "mp3_bitrate": "96k",
+  "loudness_i_lufs": -23,
+  "loudness_tp_db": -1.5,
+  "loudness_lra": 7,
+  "n_fft": 1024,
+  "hop_length": 256,
+  "log_epsilon": 1e-8,
+  "local_top_k": 8,
+  "subspace_window_frames": 64,
+  "subspace_step_frames": 32,
+  "shared_basis_rank": 16,
+  "shared_basis_oversample": 8,
+  "shared_basis_power_iterations": 1,
+  "seed": 20261026,
+  "train_fraction": 0.7,
+  "validation_fraction": 0.15,
+  "test_fraction": 0.15
+}

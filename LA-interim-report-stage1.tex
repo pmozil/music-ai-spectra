@@ -1,0 +1,305 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Linear Algebra -- course project report template, Autumn 2026
+%% Ukrainian Catholic University, Faculty of Applied Sciences,
+%% Data Science Master Programme
+%%
+%% The title page is adapted from a template by WikiBooks, distributed
+%% by LaTeXTemplates.com under CC BY-NC-SA 3.0.
+%%
+%% HOW TO USE THIS TEMPLATE
+%%   1. Fill in the block marked "FILL IN" below: the stage of the report,
+%%      the title, the authors, the project card and the links.
+%%   2. One file serves all three milestones. Keep working in the same
+%%      file: interim report 1 grows into interim report 2, and that grows
+%%      into the final report.
+%%   3. Replace the grey guidance boxes with your own text. Before you
+%%      submit, set \showguidefalse so that any box you forgot disappears.
+%%   4. Do NOT change the font size, the paper size or the margins.
+%%      Page limits are counted in this format.
+%%   5. Compile with pdfLaTeX (the Overleaf default). The folder must
+%%      contain UCU-Apps.png (the logo); the example figure uses an image
+%%      shipped with every TeX distribution.
+%%
+%% PAGE LIMITS (counted automatically; see the end of the log file)
+%%   Interim reports 1 and 2: 2 pages, project card included.
+%%   Final report: at most 10 pages from the abstract to the end of the
+%%   Conclusion, figures and tables included. The title page, the
+%%   references and the appendices are not counted.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[11pt,a4paper]{article}
+
+%----------------------------------------------------------------------
+%  Page layout: do not change
+%----------------------------------------------------------------------
+\usepackage[a4paper,left=20mm,right=20mm,top=20mm,bottom=25mm,
+            headheight=14pt,marginparwidth=16mm]{geometry}
+
+%----------------------------------------------------------------------
+%  Packages
+%----------------------------------------------------------------------
+\usepackage[english]{babel}
+% T1 encoding only together with the scalable Latin Modern fonts
+% (standard on Overleaf); otherwise fall back to the default encoding.
+\IfFileExists{lmodern.sty}{\usepackage[T1]{fontenc}\usepackage{lmodern}}{}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs,tabularx}
+\usepackage{caption,subcaption}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{fancyhdr}
+\usepackage{refcount}
+\usepackage{listings}
+\usepackage[ruled,vlined,linesnumbered]{algorithm2e}
+% Margin notes are useful while drafting. Add the option "disable"
+% before you submit, or simply delete your \todo{} commands.
+\usepackage[colorinlistoftodos,textsize=scriptsize]{todonotes}
+\usepackage[colorlinks=true,linkcolor=MidnightBlue,citecolor=MidnightBlue,
+            urlcolor=MidnightBlue]{hyperref}   % load hyperref last
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%  FILL IN
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Stage of the report: 1 = interim report 1 (scoping memo),
+%                      2 = interim report 2 (working baseline),
+%                      3 = final report
+\newcommand{\stage}{1}
+
+\newcommand{\reporttitle}{Low-Rank Spectral Fingerprints for AI-Generated Music Detection}
+\newcommand{\shorttitle}{Low-rank spectrograms for AI-music detection}
+\newcommand{\reportauthors}{Iryna Matvieieva \quad Petro Mozil}
+
+% Project card: one line each. Keep it consistent with your registration;
+% if something has changed, update it here and say so in the report.
+\newcommand{\carddomain}{Audio forensics / music provenance}
+\newcommand{\cardmethod}{STFT magnitude spectrograms; exact and randomized SVD}
+\newcommand{\cardobject}{10-s mono clip; STFT magnitude $M\in\mathbb{R}_{\geq0}^{1025\times431}$; top $k=20$ singular values}
+\newcommand{\cardalgorithms}{Exact NumPy/LAPACK SVD versus randomized SVD ($k=20$, $p=10$, one power step)}
+\newcommand{\carddata}{Up to 500 paired clips from FakeMusicCaps and MusicCaps~\cite{FakeMusicCaps}}
+\newcommand{\cardcode}{\url{https://github.com/pmozil/music-ai-spectra}}
+\newcommand{\cardvideo}{\url{https://link-to-your-recording}} % final only
+
+% Guidance boxes: set \showguidefalse before you submit.
+\newif\ifshowguide
+\showguidefalse
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%  Template machinery: no need to read further than the next block
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Notation used in the course. Add your own macros here.
+\newcommand{\bR}{\mathbb{R}}
+\newcommand{\bC}{\mathbb{C}}
+\newcommand{\ba}{\mathbf{a}}
+\newcommand{\bb}{\mathbf{b}}
+\newcommand{\bu}{\mathbf{u}}
+\newcommand{\bv}{\mathbf{v}}
+\newcommand{\bx}{\mathbf{x}}
+\newcommand{\by}{\mathbf{y}}
+\newcommand{\bz}{\mathbf{z}}
+\DeclareMathOperator{\rank}{rank}
+\DeclareMathOperator{\cond}{cond}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator{\trace}{trace}
+\DeclareMathOperator{\nnz}{nnz}
+\DeclareMathOperator*{\argmin}{argmin}
+
+% Theorem-like environments, numbered within sections
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+% Code listings
+\lstset{language=Python, basicstyle=\ttfamily\small, columns=fullflexible,
+  keepspaces=true, frame=lines, numbers=left, numberstyle=\tiny\color{gray},
+  commentstyle=\color{gray}, keywordstyle=\color{MidnightBlue}\bfseries,
+  showstringspaces=false, breaklines=true}
+
+% Guidance boxes
+\newcommand{\guide}[1]{\ifshowguide\par\smallskip\noindent
+  \colorbox{gray!12}{\parbox{\dimexpr\linewidth-2\fboxsep}{\small\itshape
+  \textbf{Guidance.} #1}}\par\smallskip\fi}
+
+% Stage names
+\newcommand{\stagename}{\ifcase\stage\or Interim report 1: scoping memo\or
+  Interim report 2: working baseline\or Final report\fi}
+
+% Running heads
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\shorttitle}
+\fancyhead[R]{\small\stagename}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% Project card
+\newcommand{\projectcard}{%
+  \noindent
+  \begin{tabularx}{\linewidth}{@{}>{\raggedright\bfseries}p{3.0cm}
+                                  >{\raggedright\arraybackslash}X@{}}
+    \toprule
+    Domain        & \carddomain \\
+    Method family & \cardmethod \\
+    LA object     & \cardobject \\
+    Algorithms    & \cardalgorithms \\
+    Data          & \carddata \\
+    \ifnum\stage>1 Code & \cardcode \\ \fi
+    \ifnum\stage=3 Recording & \cardvideo \\ \fi
+    \bottomrule
+  \end{tabularx}\par}
+
+% Page counting: the main body runs from \bodystart to \bodyend
+\newcommand{\pagelimit}{\ifnum\stage=3 10\else 2\fi}
+\newcommand{\bodystart}{\label{body-start}}
+\newcommand{\bodyend}{\label{body-end}}
+\AtEndDocument{%
+  \refused{body-start}\refused{body-end}%
+  \edef\bodypages{\number\numexpr\getpagerefnumber{body-end}
+    -\getpagerefnumber{body-start}+1\relax}%
+  \typeout{}%
+  \typeout{*** Main body: \bodypages\space page(s); limit \pagelimit.}%
+  \typeout{}%
+  \ifnum\bodypages>\pagelimit\relax
+    \PackageWarningNoLine{LA-template}{Main body has \bodypages\space pages,
+      above the limit of \pagelimit}%
+  \fi}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{document}
+
+% Interim report 1: title and project card count toward the two-page limit.
+\bodystart
+\begin{center}
+  {\Large\bfseries \reporttitle\par}
+  \medskip
+  {\large \stagename\par}
+  \smallskip
+  \begin{tabular}{c}\reportauthors\end{tabular}\par
+  \smallskip
+  {\small Linear Algebra, UCU Data Science Master Programme, \today\par}
+\end{center}
+\projectcard
+\smallskip
+
+\section{Problem and aim}
+The detection of AI-generated music has proven a problem
+for platforms, rights holders and listeners. In this work,
+we intend to distinguish AI-generated audio from human-generated audio.
+Given a short audio clip, we predict human-origin versus text-to-music-generated.
+We do so by checking whether the low-rank structure of its STFT magnitude
+spectrogram supports this distinction on held-out clips,
+rather than create a universal detector. Prior work also warns that
+strong controlled results may not generalize across manipulations
+or datasets~\cite{Afchar,LiBench}, so we try to balance classes
+and group each original/synthetic caption pair in the same data split.
+
+We will sample up to 500 caption IDs from FakeMusicCaps and retrieve the
+matching human-made MusicCaps clips. We will choose one generated clip per ID,
+balance across the five generators where possible, and keep matched clips in
+the same split. If original clips are inaccessible, we will report the smaller
+paired sample rather than replace them with unmatched tracks. Success requires
+held-out balanced accuracy $\geq0.65$ with a 95\% bootstrap confidence interval
+whose lower bound exceeds $0.50$. The approximation must also satisfy
+$\|p^{\rm rand}-p^{\rm exact}\|_2/\|p^{\rm exact}\|_2\leq10^{-2}$ on at least
+95\% of clips; otherwise, randomized SVD will not be considered accurate
+enough for this feature pipeline.
+
+\section{Linear-algebra formulation}
+Each ten-second clip is converted to mono at 22.05 kHz. A centred short-time
+Fourier transform (STFT), using a 2048-sample window/FFT and hop 512, gives a
+magnitude matrix $M\in\mathbb{R}_{\geq0}^{F\times T}$ with $F=1025$ and
+$T\approx431$. Its singular value decomposition is
+
+$$
+  M=U\Sigma V^\top,\qquad \sigma_1\geq\sigma_2\geq\cdots\geq0.
+$$
+
+We classify the first 20 normalized squared singular values,
+$p_i=\sigma_i^2/\|M\|_F^2$, using logistic regression. The linear-algebra task
+is to compute or approximate this leading spectrum, which summarizes how
+spectrogram energy is distributed across orthogonal components. It may discard
+useful phase, local-frequency, and temporal cues, so classification is an
+empirical feasibility test.
+
+\section{Approaches and evaluation}
+\textbf{Dense thin SVD (reference).} NumPy/LAPACK gives a numerically accurate
+spectrum and is the reference for error measurement. For $F\geq T$, the cost
+is $O(FT^2+T^3)$ flops and memory is $O(FT+T^2)$. Its advantage is reliability;
+its drawback is that it computes the full spectrum, and these moderate matrix
+sizes may leave little room for speedup.
+
+\textbf{Randomized SVD.} Following Halko, Martinsson, and Tropp~\cite{Halko},
+we will implement range finding with target rank $k=20$, oversampling $p=10$
+($\ell=k+p=30$), QR orthogonalization, and one power step ($q=1$), then take
+the SVD of the reduced matrix. Its cost is approximately
+$O((2q+2)FT\ell+(F+T)\ell^2)$ flops and memory
+$O(FT+(F+T)\ell)$. It focuses work on the leading subspace, but can lose
+accuracy when singular values decay slowly or cluster; one power step may then
+be insufficient, and extra steps increase runtime. We will implement this
+randomized algorithm and the feature pipeline ourselves, while using NumPy /
+LAPACK for the dense reference and scikit-learn for logistic regression.
+
+We will compare feature error and wall-clock time, then report balanced accuracy,
+ROC-AUC and bootstrap confidence intervals on a caption-grouped held-out set.
+A bandwidth-only classifier is a diagnostic baseline: if it performs well,
+labels may be explained by codec or spectral-bandwidth artifacts rather than
+music structure. Frobenius normalization reduces sensitivity to overall gain,
+but codec and bandwidth differences can still leak into labels; identical mono
+conversion, resampling and loudness normalization will be applied to both classes.
+
+\section{Risks and work plan}
+The main risks are unavailable matched originals, a flat singular-value
+spectrum, and leakage of generator or mastering artifacts into the classifier.
+If the target accuracy is missed, we will report this negative result rather
+than repeatedly tune on the test set. By 2 November, we will verify clip
+availability and lock the preprocessing and split protocol. By 16 November
+(interim report 2), we will implement the feature pipeline and randomized SVD,
+validate its error and runtime against dense SVD on a subset, and run an initial
+baseline. By 14 December, we will finish the paired evaluation (up to 500 IDs),
+compare against the bandwidth baseline, calculate confidence intervals, and
+discuss limitations in the final report. Iryna will lead data matching and
+preprocessing; Petro will lead randomized SVD and numerical validation; both
+will run the classification evaluation and write the report.
+
+\bodyend
+
+% The references are excluded from the two-page main-body limit.
+\clearpage
+\begin{thebibliography}{9}
+\bibitem{FakeMusicCaps}
+L. Comanducci, P. Bestagini and S. Tubaro,
+``FakeMusicCaps: A Dataset for Detection and Attribution of Synthetic Music
+Generated via Text-to-Music Models,'' \emph{Journal of Imaging}, vol. 11,
+no. 7, article 242, 2025.
+\href{https://doi.org/10.3390/jimaging11070242}{doi:10.3390/jimaging11070242}.
+
+\bibitem{Afchar}
+D. Afchar, G. Meseguer-Brocal and R. Hennequin,
+``AI-Generated Music Detection and its Challenges,'' in
+\emph{Proc. IEEE International Conference on Acoustics, Speech and Signal
+Processing (ICASSP)}, 2025.
+\href{https://doi.org/10.1109/ICASSP49660.2025.10890655}{doi:10.1109/ICASSP49660.2025.10890655}.
+
+\bibitem{LiBench}
+Y. Li, Q. Sun, H. Li, L. Specia and B. W. Schuller,
+``Explainable detection of machine generated music and early systematic
+evaluation,'' \emph{Scientific Reports}, vol. 16, article 13757, 2026.
+\href{https://doi.org/10.1038/s41598-026-42133-7}{doi:10.1038/s41598-026-42133-7}.
+
+\bibitem{Halko}
+N. Halko, P. G. Martinsson and J. A. Tropp,
+``Finding Structure with Randomness: Probabilistic Algorithms for Constructing
+Approximate Matrix Decompositions,'' \emph{SIAM Review}, vol. 53, no. 2,
+pp. 217--288, 2011.
+\href{https://doi.org/10.1137/090771806}{doi:10.1137/090771806}.
+\end{thebibliography}
+
+\end{document}
