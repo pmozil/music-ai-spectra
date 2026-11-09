@@ -1,5 +1,5 @@
 {
-  "sample_rate": 16000,
+  "sample_rate": 22050,
   "duration_seconds": 10.0,
   "lowpass_hz": 7000,
   "mp3_bitrate": "96k",
