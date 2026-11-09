@@ -74,10 +74,11 @@
 % Project card: one line each. Keep it consistent with your registration;
 % if something has changed, update it here and say so in the report.
 \newcommand{\carddomain}{Audio forensics / music provenance}
-\newcommand{\cardmethod}{STFT magnitude spectrograms; exact and randomized SVD}
+\newcommand{\cardmethod}{STFT magnitude spectrograms; exact and randomized SVD; feasibility study of low-rank spectral features}
 \newcommand{\cardobject}{For each 10-s mono clip, $M\in\mathbb{R}_{\geq0}^{1025\times T}$, with $T\approx431$; analyse the leading $k=20$ singular values}
 \newcommand{\cardalgorithms}{Own randomized SVD ($k=20$, oversampling $p=10$, one power step); exact NumPy/LAPACK SVD as reference}
 \newcommand{\carddata}{FakeMusicCaps (subset), paired with retrievable original MusicCaps clips~\cite{FakeMusicCaps}}
+\newcommand{\cardreframing}{Evaluate low-rank spectral features as a binary detection method, not build a universal AI-music detector}
 \newcommand{\cardcode}{\url{https://github.com/pmozil/music-ai-spectra}}
 \newcommand{\cardvideo}{\url{https://link-to-your-recording}} % final only
 
@@ -151,6 +152,7 @@
     LA object     & \cardobject \\
     Algorithms    & \cardalgorithms \\
     Data          & \carddata \\
+    Scope         & \cardreframing \\
     \ifnum\stage>1 Code & \cardcode \\ \fi
     \ifnum\stage=3 Recording & \cardvideo \\ \fi
     \bottomrule
@@ -236,25 +238,29 @@ matrix by a matrix of low rank~\cite[Sec.~III.5]{Strang}.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Problem and motivation}
 \label{sec:problem}
-
 The detection of AI-generated music has proven a problem
 for platforms, rights holders and listeners. In this work,
 we intend to distinguish AI-generated audio from human-generated audio.
-Given a short audio clip, we predict human-origin versus text-to-music-generated.
-We do so by checking whether the low-rank structure of its STFT magnitude
-spectrogram supports this distinction on held-out clips,
-rather than create a universal detector. Prior work also warns that
+
+The input is a ten-second audio clip, and the output is a binary prediction:
+human-generated or AI-generated (text-to-music). Our method extracts the
+normalized leading singular values of the clip's STFT magnitude spectrogram
+and uses them as features for a logistic regression classifier.
+The aim is to evaluate whether these low-rank spectral features contain
+enough information to distinguish the two classes on held-out data,
+not to create a universal AI-music detector.
+
+Prior work also warns that
 strong controlled results may not generalize across manipulations
 or datasets~\cite{Afchar,LiBench}, so we try to balance classes
 and group each original/synthetic caption pair in the same data split.
 
-Success is held-out balanced accuracy $\geq0.65$, with the lower
-bound of a 95\% confidence interval above $0.50$.
-Separately, randomized SVD should achieve relative $\ell_2$
-error $\leq10^{-2}$ in the first 20 normalized squared singular-value
-features on at least 95\% of test clips, relative to exact SVD.
-If the classification threshold is not met,
-we should deem these features insufficient in this setup.
+Success requires held-out balanced accuracy $\geq0.65$, with the lower bound
+of its 95\% bootstrap confidence interval exceeding $0.50$.
+The approximation must also satisfy
+$\|p^{\rm rand}-p^{\rm exact}\|_2/\|p^{\rm exact}\|_2\leq10^{-2}$ on at least
+95\% of clips; otherwise, randomized SVD will not be considered accurate
+enough for this feature pipeline.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Linear-algebra formulation}
