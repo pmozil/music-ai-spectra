@@ -198,8 +198,9 @@ we intend to distinguish AI-generated audio from human-generated audio.
 
 The input is a ten-second audio clip, and the output is a binary prediction:
 human-generated or AI-generated (text-to-music). Our method extracts the
-normalized leading singular values of the clip's STFT magnitude spectrogram
-and uses them as features for a logistic regression classifier.
+normalized leading singular values of the clip's STFT magnitude spectrogram,
+the stability of its leading singular subspace over time and features derived
+from a shared spectral basis, and uses them as features for a logistic regression classifier.
 The aim is to evaluate whether these low-rank spectral features contain
 enough information to distinguish the two classes on held-out data,
 not to create a universal AI-music detector.
@@ -218,8 +219,9 @@ paired sample rather than replace them with unmatched tracks.
 Success requires held-out balanced accuracy $\geq0.65$, with the lower bound
 of its 95\% bootstrap confidence interval exceeding $0.50$.
 The approximation must also satisfy
-$\|p^{\rm rand}-p^{\rm exact}\|_2/\|p^{\rm exact}\|_2\leq10^{-2}$ on at least
-95\% of clips; otherwise, randomized SVD will not be considered accurate
+$\|\sigma^{\rm rand}-\sigma^{\rm exact}\|_2/\|\sigma^{\rm exact}\|_2\leq10^{-2}$ for
+the leading 20 singular values of the stacked matrix, checked against exact SVD
+on a subset; otherwise, randomized SVD will not be considered accurate
 enough for this feature pipeline.
 
 \section{Linear-algebra formulation}
@@ -232,8 +234,10 @@ $$
   M=U\Sigma V^\top,\qquad \sigma_1\geq\sigma_2\geq\cdots\geq0.
 $$
 
-We classify the first 20 normalized squared singular values,
-$p_i=\sigma_i^2/\|M\|_F^2$, using logistic regression. The linear-algebra task
+Per-clip matrices are small, so this SVD is computed exactly. We classify the
+first 20 normalized squared singular values, $p_i=\sigma_i^2/\|M\|_F^2$, using
+logistic regression; an entropy-based effective rank will be added and defined
+precisely in interim report 2. The linear-algebra task
 is to compute or approximate this leading spectrum, which summarizes how
 spectrogram energy is distributed across orthogonal components. It may discard
 useful phase, local-frequency, and temporal cues, so classification is an
@@ -243,23 +247,37 @@ The matrix is dense, rectangular and nonnegative, and is not generally
 symmetric or sparse. Its rank is at most $\min(F,T)=431$.
 We exploit its rectangular shape ($F>T$) and the expectation that much of
 its energy may be concentrated in a relatively small number of singular
-components. The task is a truncated singular value decomposition,
-we seek the leading $k=20$ singular values without computing
-the complete decomposition.
+components.
+
+\textbf{Subspace stability.} We cut $M$ into sliding windows $M^{(j)}$ of $w$
+frames with step $s$, and let $U_j\in\mathbb{R}^{F\times k}$ hold the leading $k$
+left singular vectors of $M^{(j)}$. The principal angles
+$0\leq\theta_1\leq\cdots\leq\theta_k\leq\pi/2$ between consecutive windows are
+given by $\cos\theta_i=\sigma_i(U_j^\top U_{j+1})$. Their average over the clip
+measures how much the dominant spectral subspace changes over time and is used
+as an additional feature.
+
+\textbf{Shared spectral basis.} Spectrograms of many training clips are stacked
+into $A=[M_1\ \cdots\ M_N]\in\mathbb{R}^{F\times431N}$. Its leading left singular
+vectors, computed with our randomized SVD, form a spectral basis shared across
+clips; the basis is used to derive additional per-clip features (to be specified
+in interim report 2). For $A$ the task is a
+truncated singular value decomposition: we seek its leading $k=20$ singular
+values and vectors without computing the complete decomposition.
 
 \section{Approaches and evaluation}
-\textbf{Dense thin SVD (reference).} NumPy/LAPACK gives a numerically accurate
-spectrum and is the reference for error measurement. For $F\geq T$, the cost
+\textbf{Dense thin SVD (per clip).} NumPy/LAPACK gives a numerically accurate
+spectrum; we use it for every clip, and as the reference for randomized SVD. For $F\geq T$, the cost
 is $O(FT^2+T^3)$ flops and memory is $O(FT+T^2)$. Its advantage is reliability;
 its drawback is that it computes the full spectrum, and these moderate matrix
 sizes may leave little room for speedup.
 
-\textbf{Randomized SVD.} Following Halko, Martinsson, and Tropp~\cite{Halko},
-we will implement range finding with target rank $k=20$, oversampling $p=10$
+\textbf{Randomized SVD (stacked matrix).} Following Halko, Martinsson, and
+Tropp~\cite{Halko}, we will apply it to $A$ and implement range finding with target rank $k=20$, oversampling $p=10$
 ($\ell=k+p=30$), QR orthogonalization, and one power step ($q=1$), then take
 the SVD of the reduced matrix. Its cost is approximately
 $O((2q+2)FT\ell+(F+T)\ell^2)$ flops and memory
-$O(FT+(F+T)\ell)$. It focuses work on the leading subspace, but can lose
+$O(FT+(F+T)\ell)$, with $T$ replaced by $431N$, the number of columns of $A$. It focuses work on the leading subspace, but can lose
 accuracy when singular values decay slowly or cluster; one power step may then
 be insufficient, and extra steps increase runtime. We will implement this
 randomized algorithm and the feature pipeline ourselves, while using NumPy /
