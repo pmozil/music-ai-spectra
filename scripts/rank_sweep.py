@@ -65,8 +65,12 @@ def angle_stats(bases: list[np.ndarray]) -> dict[str, float]:
     }
 
 
-def clip_features(lm: np.ndarray, cfg: SpectralConfig, ranks: list[int], seed: int) -> list[dict]:
-    """Features for every (rank, method) of one log-magnitude spectrogram."""
+def clip_features(lm: np.ndarray, cfg: SpectralConfig, ranks: list[int], seed: int,
+                  window_rank: int = 0) -> list[dict]:
+    """Features for every (rank, method) of one log-magnitude spectrogram.
+
+    window_rank > 0 fixes the window-basis rank (principal angles) for every k,
+    so only the global top-k features change with k. 0 = use k (compare script)."""
     total = float(np.sum(lm * lm))
     u_full, s_full, _ = np.linalg.svd(lm, full_matrices=False)
     s_all = np.linalg.svd(lm, compute_uv=False)  # what the compare script uses for erank / sigma1
@@ -74,8 +78,9 @@ def clip_features(lm: np.ndarray, cfg: SpectralConfig, ranks: list[int], seed: i
     windows = [lm[:, st:st + width] for st in starts]
     win_u = [np.linalg.svd(w, full_matrices=False)[0] for w in windows]
     out = []
+    rand_bases: dict[int, list[np.ndarray]] = {}
     for k in ranks:
-        kw = min(k, width)
+        kw = min(window_rank or k, width)
         # exact
         s = s_full[:k]
         rec = {"rank": k, "method": "exact",
@@ -89,7 +94,9 @@ def clip_features(lm: np.ndarray, cfg: SpectralConfig, ranks: list[int], seed: i
         if kw >= width:
             bases = [u[:, :kw] for u in win_u]
         else:
-            bases = [compare.get_basis(w, kw, "randomized", seed)[0] for w in windows]
+            if kw not in rand_bases:
+                rand_bases[kw] = [compare.get_basis(w, kw, "randomized", seed)[0] for w in windows]
+            bases = rand_bases[kw]
         rec = {"rank": k, "method": "randomized",
                "effective_rank": compare.effective_rank(s),
                "sigma1_over_fro": float(s[0] / np.sqrt(total)) if total > 0 else 0.0,
@@ -99,22 +106,22 @@ def clip_features(lm: np.ndarray, cfg: SpectralConfig, ranks: list[int], seed: i
     return out
 
 
-def process(row: dict, cfg: SpectralConfig, ranks: list[int], seed: int) -> list[dict]:
+def process(row: dict, cfg: SpectralConfig, ranks: list[int], seed: int, window_rank: int = 0) -> list[dict]:
     # Many small SVDs: one BLAS thread per clip is about 5x faster than letting
     # BLAS spread each tiny SVD over all cores. Use --workers for parallelism.
     from threadpoolctl import threadpool_limits
     with threadpool_limits(1):
-        return _process(row, cfg, ranks, seed)
+        return _process(row, cfg, ranks, seed, window_rank)
 
 
-def _process(row: dict, cfg: SpectralConfig, ranks: list[int], seed: int) -> list[dict]:
+def _process(row: dict, cfg: SpectralConfig, ranks: list[int], seed: int, window_rank: int = 0) -> list[dict]:
     try:
         audio, sr = sf.read(str(row["processed_path"]), dtype="float32", always_2d=False)
         if np.asarray(audio).ndim == 2:
             audio = np.asarray(audio).mean(axis=1)
         lm = log_magnitude_spectrogram(audio, int(sr), cfg)
         ids = {c: row[c] for c in ID_COLS}
-        return [{**ids, **f} for f in clip_features(lm, cfg, ranks, seed)]
+        return [{**ids, **f} for f in clip_features(lm, cfg, ranks, seed, window_rank)]
     except Exception as exc:  # same behaviour as the compare script: skip and report
         print(f"Skipping {row['sample_id']}: {type(exc).__name__}: {exc}")
         return []
@@ -153,7 +160,7 @@ def compare_pairs(df: pd.DataFrame) -> pd.DataFrame:
     return df[df["ytid"].isin(c.index[(c["count"] == 2) & (c["sum"] == 1)])].copy()
 
 
-def plot(summary: pd.DataFrame, path: Path) -> None:
+def plot(summary: pd.DataFrame, path: Path, window_rank: int = 0) -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -174,7 +181,10 @@ def plot(summary: pd.DataFrame, path: Path) -> None:
                           f"{'human' if name == 'human' else 'AI'}")
     a1.axhline(0.5, color=muted, lw=1, ls=":")
     a1.text(ranks[0], 0.505, "chance", color=muted, fontsize=8, va="bottom")
-    a1.set(xlabel="rank k", ylabel="test accuracy", title="Logistic regression on 6 SVD features")
+    title = "Logistic regression on 6 SVD features"
+    if window_rank:
+        title += f"\n(window rank fixed at {window_rank})"
+    a1.set(xlabel="rank k", ylabel="test accuracy", title=title)
     lo = min(0.45, float(summary["accuracy"].min()) - 0.03)
     a1.set_ylim(lo, 1.0)
     a2.plot(ranks, ranks, color=muted, lw=1, ls=":", label="erank = k (upper bound for top-k)")
@@ -198,6 +208,9 @@ def main() -> int:
     ap.add_argument("--config", type=Path, default=Path("configs/default.json"))
     ap.add_argument("--output-dir", type=Path, default=Path("artifacts/rank_sweep"))
     ap.add_argument("--ranks", default="10,20,40,80")
+    ap.add_argument("--window-rank", type=int, default=0,
+                    help="fix the rank of the sliding-window bases (principal angles) for every k; "
+                         "0 = same as k, like compare_exact_randomized.py")
     ap.add_argument("--limit-pairs", type=int, default=0)
     ap.add_argument("--include-validation", action="store_true",
                     help="also process validation clips (the classifier does not use them)")
@@ -225,11 +238,14 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     cache = args.output_dir / "features_long.csv"
     info = args.output_dir / "sweep_settings.json"
-    settings = {"ranks": ranks, "seed": args.seed, "config": c, "manifest": str(args.manifest)}
+    settings = {"ranks": ranks, "window_rank": args.window_rank, "seed": args.seed, "config": c,
+                "manifest": str(args.manifest)}
     done: set[str] = set()
     if cache.exists():
         old = json.loads(info.read_text()) if info.exists() else {}
-        if {k: old.get(k) for k in ("ranks", "seed", "config")} != {k: settings[k] for k in ("ranks", "seed", "config")}:
+        old.setdefault("window_rank", 0)
+        keys = ("ranks", "window_rank", "seed", "config")
+        if {k: old.get(k) for k in keys} != {k: settings[k] for k in keys}:
             raise SystemExit(f"{cache} was made with different settings. Use a new --output-dir or delete that folder.")
         done = set(pd.read_csv(cache, usecols=["sample_id"])["sample_id"])
         print(f"Resuming: {len(done)} clips already in {cache}")
@@ -242,9 +258,9 @@ def main() -> int:
             part = todo[i:i + chunk]
             if args.workers > 1:
                 from joblib import Parallel, delayed
-                res = Parallel(n_jobs=args.workers)(delayed(process)(r, cfg, ranks, args.seed) for r in part)
+                res = Parallel(n_jobs=args.workers)(delayed(process)(r, cfg, ranks, args.seed, args.window_rank) for r in part)
             else:
-                res = [process(r, cfg, ranks, args.seed) for r in part]
+                res = [process(r, cfg, ranks, args.seed, args.window_rank) for r in part]
             rows = [x for r in res for x in r]
             if rows:
                 pd.DataFrame(rows).to_csv(cache, mode="a", header=not cache.exists(), index=False)
@@ -254,7 +270,7 @@ def main() -> int:
     feats = feats[feats["sample_id"].isin(df["sample_id"])]
     summary = summarise(feats, ranks, args.seed, args.output_dir)
     summary.to_csv(args.output_dir / "rank_sweep_metrics.csv", index=False)
-    plot(summary, args.output_dir / "rank_sweep.png")
+    plot(summary, args.output_dir / "rank_sweep.png", args.window_rank)
     cols = ["rank", "method", "n_test", "accuracy", "roc_auc",
             "median_effective_rank_human", "median_effective_rank_ai", "mean_topk_energy_human", "mean_topk_energy_ai"]
     pd.set_option("display.width", 200)
