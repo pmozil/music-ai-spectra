@@ -54,3 +54,17 @@ def test_bandwidth_filter_drops_whole_pairs():
     bw = pd.Series({"h1": 15000.0, "f1": 3000.0, "h2": 15000.0, "f2": 7750.0})
     kept = generator_report.apply_bandwidth_filter(df, bw, 6000)
     assert list(kept["sample_id"]) == ["h2", "f2"]
+
+
+def test_fixed_window_rank_keeps_angles_constant():
+    rng = np.random.default_rng(2)
+    lm = (rng.normal(size=(100, 10)) @ rng.normal(size=(10, 300)) + rng.normal(size=(100, 300))).astype(np.float32)
+    cfg = SpectralConfig(subspace_window_frames=64, subspace_step_frames=32)
+    rows = rank_sweep.clip_features(lm, cfg, [10, 40, 80], seed=7, window_rank=32)
+    for method in ("exact", "randomized"):
+        sub = [r for r in rows if r["method"] == method]
+        assert len({round(r["principal_angle_mean_deg"], 9) for r in sub}) == 1
+        assert sub[0]["topk_energy_fraction"] < sub[-1]["topk_energy_fraction"]
+    # and equals the compare script's angles at k = 32
+    ref, _ = compare.features_for(lm, cfg, 32, "exact", 7)
+    assert np.isclose(rows[0]["principal_angle_mean_deg"], ref["principal_angle_mean_deg"], atol=1e-4)
