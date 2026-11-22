@@ -18,5 +18,6 @@
   "seed": 20261026,
   "train_fraction": 0.7,
   "validation_fraction": 0.15,
-  "test_fraction": 0.15
+  "test_fraction": 0.15,
+  "max_freq_hz": 6000
 }

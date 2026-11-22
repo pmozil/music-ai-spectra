@@ -17,6 +17,7 @@ class SpectralConfig:
     local_top_k: int = 8
     subspace_window_frames: int = 64
     subspace_step_frames: int = 32
+    max_freq_hz: float = 0.0  # >0: keep only STFT rows with f <= max_freq_hz (removes bandwidth confound)
 
 
 def log_magnitude_spectrogram(
@@ -31,7 +32,7 @@ def log_magnitude_spectrogram(
     if x.size < cfg.n_fft:
         x = np.pad(x, (0, cfg.n_fft - x.size))
 
-    _, _, z = stft(
+    freqs, _, z = stft(
         x,
         fs=sample_rate,
         window="hann",
@@ -42,6 +43,8 @@ def log_magnitude_spectrogram(
         padded=False,
         return_onesided=True,
     )
+    if cfg.max_freq_hz and cfg.max_freq_hz > 0:
+        z = z[freqs <= cfg.max_freq_hz, :]
     mag = np.abs(z).astype(np.float64, copy=False)
     logmag = np.log(np.maximum(mag, cfg.log_epsilon))
     logmag -= float(logmag.mean())

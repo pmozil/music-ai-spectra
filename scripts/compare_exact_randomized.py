@@ -68,7 +68,8 @@ def main():
     cfg = SpectralConfig(sample_rate=int(c["sample_rate"]), n_fft=int(c["n_fft"]),
         hop_length=int(c["hop_length"]), log_epsilon=float(c["log_epsilon"]),
         local_top_k=int(c["local_top_k"]), subspace_window_frames=int(c["subspace_window_frames"]),
-        subspace_step_frames=int(c["subspace_step_frames"]))
+        subspace_step_frames=int(c["subspace_step_frames"]),
+        max_freq_hz=float(c.get("max_freq_hz", 0)))
     df = pd.read_csv(args.manifest)
     if "processing_status" in df:
         df = df[df["processing_status"].eq("ok")].copy()

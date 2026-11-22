@@ -31,6 +31,7 @@ def main():
         local_top_k=int(cfgd["local_top_k"]),
         subspace_window_frames=int(cfgd["subspace_window_frames"]),
         subspace_step_frames=int(cfgd["subspace_step_frames"]),
+        max_freq_hz=float(cfgd.get("max_freq_hz", 0)),
     )
     df = pd.read_csv(args.manifest)
     if "processing_status" in df:
