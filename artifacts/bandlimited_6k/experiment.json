@@ -1,0 +1,78 @@
+{
+  "seed": 20261026,
+  "feature_csv": "data/processed/features.csv",
+  "class_counts_by_split": {
+    "0": {
+      "test": 555,
+      "train": 2585,
+      "validation": 553
+    },
+    "1": {
+      "test": 555,
+      "train": 2585,
+      "validation": 553
+    }
+  },
+  "effective_rank": "exp(-sum_i p_i log p_i), p_i = sigma_i/sum_j sigma_j; log-magnitude matrix is globally mean-centered",
+  "subspace_stability": "1 - mean principal angle/(pi/2); principal angles are from singular values of U_j.T U_{j+1}",
+  "shared_basis": "randomized SVD approximation of [L_train_1 L_train_2 ...], training partition only",
+  "models": [
+    {
+      "model": "bandwidth_only_baseline",
+      "n_features": 1,
+      "features": "raw_bandwidth_cutoff_hz",
+      "n_train": 5170,
+      "n_validation": 1106,
+      "n_test": 1110,
+      "threshold_from_validation": 0.8210131196157088,
+      "accuracy": 0.9630630630630631,
+      "balanced_accuracy": 0.963063063063063,
+      "roc_auc": 0.9334258582907231,
+      "precision_ai": 0.9312080536912751,
+      "recall_ai": 1.0,
+      "f1_ai": 0.9643788010425717,
+      "tn": 514,
+      "fp": 41,
+      "fn": 0,
+      "tp": 555
+    },
+    {
+      "model": "local_exact_svd_and_subspace_angles",
+      "n_features": 15,
+      "features": "effective_rank,sigma1_over_fro,topk_energy_fraction,spectral_entropy_bits,principal_angle_mean_deg,principal_angle_std_deg,subspace_stability,sigma_ratio_1,sigma_ratio_2,sigma_ratio_3,sigma_ratio_4,sigma_ratio_5,sigma_ratio_6,sigma_ratio_7,sigma_ratio_8",
+      "n_train": 5170,
+      "n_validation": 1106,
+      "n_test": 1110,
+      "threshold_from_validation": 0.47958249651063567,
+      "accuracy": 0.7315315315315315,
+      "balanced_accuracy": 0.7315315315315316,
+      "roc_auc": 0.82472851229608,
+      "precision_ai": 0.7392923649906891,
+      "recall_ai": 0.7153153153153153,
+      "f1_ai": 0.7271062271062271,
+      "tn": 415,
+      "fp": 140,
+      "fn": 158,
+      "tp": 397
+    },
+    {
+      "model": "local_plus_train_shared_basis",
+      "n_features": 17,
+      "features": "effective_rank,sigma1_over_fro,topk_energy_fraction,spectral_entropy_bits,principal_angle_mean_deg,principal_angle_std_deg,subspace_stability,sigma_ratio_1,sigma_ratio_2,sigma_ratio_3,sigma_ratio_4,sigma_ratio_5,sigma_ratio_6,sigma_ratio_7,sigma_ratio_8,shared_basis_energy_fraction,shared_basis_relative_residual",
+      "n_train": 5170,
+      "n_validation": 1106,
+      "n_test": 1110,
+      "threshold_from_validation": 0.4788629154000025,
+      "accuracy": 0.7387387387387387,
+      "balanced_accuracy": 0.7387387387387387,
+      "roc_auc": 0.829776803830858,
+      "precision_ai": 0.7458256029684601,
+      "recall_ai": 0.7243243243243244,
+      "f1_ai": 0.7349177330895795,
+      "tn": 418,
+      "fp": 137,
+      "fn": 153,
+      "tp": 402
+    }
+  ]
+}
