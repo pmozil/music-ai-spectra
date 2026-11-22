@@ -43,6 +43,7 @@ def main() -> int:
         local_top_k=int(cfg["local_top_k"]),
         subspace_window_frames=int(cfg["subspace_window_frames"]),
         subspace_step_frames=int(cfg["subspace_step_frames"]),
+        max_freq_hz=float(cfg.get("max_freq_hz", 0)),
     )
     manifest = pd.read_csv(args.manifest)
     manifest = manifest[
