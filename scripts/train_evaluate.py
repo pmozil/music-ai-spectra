@@ -64,9 +64,10 @@ def choose_threshold(y_true: np.ndarray, probabilities: np.ndarray) -> float:
     return max(scores, key=lambda x: (x[0], -x[1]))[2]
 
 
-def evaluate_model(
-    df: pd.DataFrame, features: list[str], name: str, seed: int
-) -> dict[str, object]:
+def fit_predict(
+    df: pd.DataFrame, features: list[str], seed: int
+) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, float]:
+    """Train on train, pick the threshold on validation, return (test rows, P(AI), predictions, threshold)."""
     tr = df[df["split"] == "train"].copy()
     va = df[df["split"] == "validation"].copy()
     te = df[df["split"] == "test"].copy()
@@ -90,6 +91,16 @@ def evaluate_model(
     yte = te["label"].astype(int).to_numpy()
     prob = model.predict_proba(xte)[:, 1]
     pred = (prob >= threshold).astype(int)
+    return te, prob, pred, float(threshold)
+
+
+def evaluate_model(
+    df: pd.DataFrame, features: list[str], name: str, seed: int
+) -> dict[str, object]:
+    te, prob, pred, threshold = fit_predict(df, features, seed)
+    tr = df[df["split"] == "train"]
+    va = df[df["split"] == "validation"]
+    yte = te["label"].astype(int).to_numpy()
     cm = confusion_matrix(yte, pred, labels=[0, 1])
     return {
         "model": name,
@@ -135,6 +146,7 @@ def main() -> int:
         local_top_k=int(cfgd["local_top_k"]),
         subspace_window_frames=int(cfgd["subspace_window_frames"]),
         subspace_step_frames=int(cfgd["subspace_step_frames"]),
+        max_freq_hz=float(cfgd.get("max_freq_hz", 0)),
     )
     df = pd.read_csv(args.features)
     if "feature_status" in df:

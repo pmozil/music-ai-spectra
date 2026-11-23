@@ -55,6 +55,31 @@ def features_for(logmag, cfg, k, method, seed):
         out[f"sigma_ratio_{i}"] = value
     return out, angles
 
+BASE_FEATURES = ["effective_rank","sigma1_over_fro","topk_energy_fraction",
+                 "principal_angle_mean_deg","principal_angle_std_deg","subspace_stability"]
+
+def fit_predict(wide, method, seed):
+    """Train on the train split, return (test rows, P(AI)). Threshold is 0.5."""
+    cols = [f"{method}_{x}" for x in BASE_FEATURES]
+    train, test = wide[wide.split.eq("train")], wide[wide.split.eq("test")]
+    model = make_pipeline(SimpleImputer(strategy="median"), StandardScaler(),
+        LogisticRegression(class_weight="balanced", max_iter=2000, random_state=seed))
+    model.fit(train[cols], train.label.astype(int))
+    return test, model.predict_proba(test[cols])[:,1]
+
+def regression_metrics(wide, seed):
+    metrics = []
+    n_train = int(wide.split.eq("train").sum())
+    for method in ("exact","randomized"):
+        test, prob = fit_predict(wide, method, seed)
+        pred = prob >= 0.5
+        metrics.append({"model": f"{method}_svd_features_logistic_regression",
+            "n_train":n_train,"n_test":len(test),
+            "accuracy":accuracy_score(test.label,pred),
+            "balanced_accuracy":balanced_accuracy_score(test.label,pred),
+            "roc_auc":roc_auc_score(test.label,prob) if test.label.nunique()==2 else np.nan})
+    return metrics
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--manifest", type=Path, default=Path("data/processed/manifest_harmonized.csv"))
@@ -68,7 +93,8 @@ def main():
     cfg = SpectralConfig(sample_rate=int(c["sample_rate"]), n_fft=int(c["n_fft"]),
         hop_length=int(c["hop_length"]), log_epsilon=float(c["log_epsilon"]),
         local_top_k=int(c["local_top_k"]), subspace_window_frames=int(c["subspace_window_frames"]),
-        subspace_step_frames=int(c["subspace_step_frames"]))
+        subspace_step_frames=int(c["subspace_step_frames"]),
+        max_freq_hz=float(c.get("max_freq_hz", 0)))
     df = pd.read_csv(args.manifest)
     if "processing_status" in df:
         df = df[df["processing_status"].eq("ok")].copy()
@@ -110,22 +136,7 @@ def main():
     wide = wide.reset_index()
     wide.to_csv(args.output_dir / "features_exact_vs_randomized.csv", index=False)
 
-    metrics = []
-    base_features = ["effective_rank","sigma1_over_fro","topk_energy_fraction",
-                     "principal_angle_mean_deg","principal_angle_std_deg","subspace_stability"]
-    for method in ("exact","randomized"):
-        cols = [f"{method}_{x}" for x in base_features]
-        train, val, test = [wide[wide.split.eq(s)] for s in ("train","validation","test")]
-        model = make_pipeline(SimpleImputer(strategy="median"), StandardScaler(),
-            LogisticRegression(class_weight="balanced", max_iter=2000, random_state=args.seed))
-        model.fit(train[cols], train.label.astype(int))
-        prob = model.predict_proba(test[cols])[:,1]
-        pred = prob >= 0.5
-        metrics.append({"model": f"{method}_svd_features_logistic_regression",
-            "n_train":len(train),"n_test":len(test),
-            "accuracy":accuracy_score(test.label,pred),
-            "balanced_accuracy":balanced_accuracy_score(test.label,pred),
-            "roc_auc":roc_auc_score(test.label,prob) if test.label.nunique()==2 else np.nan})
+    metrics = regression_metrics(wide, args.seed)
     pd.DataFrame(metrics).to_csv(args.output_dir / "regression_metrics.csv", index=False)
 
     angles = pd.DataFrame(angle_rows)
