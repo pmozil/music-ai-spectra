@@ -23,5 +23,6 @@
   "class_space_rank": 16,
   "class_space_oversample": 8,
   "class_space_power_iterations": 2,
-  "vector_modes": 4
+  "vector_modes": 4,
+  "window_rank": 32
 }

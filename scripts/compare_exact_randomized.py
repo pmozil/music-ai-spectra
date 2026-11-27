@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Compare exact and randomized per-clip SVD features, principal angles and regressions."""
 from __future__ import annotations
-import argparse, json
+import argparse, json, os
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -13,6 +14,7 @@ from sklearn.metrics import balanced_accuracy_score, roc_auc_score, accuracy_sco
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
+from music_svd_detection.parallel import limit_worker_threads
 from music_svd_detection.spectral import SpectralConfig, log_magnitude_spectrogram
 
 def effective_rank(s):
@@ -80,6 +82,28 @@ def regression_metrics(wide, seed):
             "roc_auc":roc_auc_score(test.label,prob) if test.label.nunique()==2 else np.nan})
     return metrics
 
+def _process_record(task):
+    record, cfg, rank, seed = task
+    limit_worker_threads()
+    try:
+        audio, sr = sf.read(str(record["processed_path"]), dtype="float32", always_2d=False)
+        if np.asarray(audio).ndim == 2:
+            audio = np.asarray(audio).mean(axis=1)
+        lm = log_magnitude_spectrogram(audio, int(sr), cfg)
+        rows, angle_rows = [], []
+        for method in ("exact", "randomized"):
+            features, angles = features_for(lm, cfg, rank, method, seed)
+            rec = {key: record[key] for key in ("sample_id", "ytid", "label", "class_name", "generator", "split")}
+            rows.append({**rec, "method": method, **features})
+            for j, angle in enumerate(angles):
+                angle_rows.append({"sample_id": record["sample_id"], "ytid": record["ytid"],
+                    "label": int(record["label"]), "class_name": record["class_name"],
+                    "method": method, "angle_index": j, "angle_deg": float(np.degrees(angle))})
+        return rows, angle_rows, None
+    except Exception as exc:
+        return [], [], f"{record.get('sample_id', '?')}: {type(exc).__name__}: {exc}"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--manifest", type=Path, default=Path("data/processed/manifest_harmonized.csv"))
@@ -87,64 +111,66 @@ def main():
     ap.add_argument("--output-dir", type=Path, default=Path("artifacts/svd_comparison"))
     ap.add_argument("--rank", type=int, default=8)
     ap.add_argument("--limit-pairs", type=int, default=0)
+    ap.add_argument("--workers", type=int, default=max(1, min(4, os.cpu_count() or 1)))
+    ap.add_argument("--chunksize", type=int, default=2)
     ap.add_argument("--seed", type=int, default=20261112)
     args = ap.parse_args()
+    if args.rank < 1 or args.workers < 1 or args.chunksize < 1:
+        ap.error("--rank, --workers and --chunksize must be positive")
     c = json.loads(args.config.read_text())
     cfg = SpectralConfig(sample_rate=int(c["sample_rate"]), n_fft=int(c["n_fft"]),
         hop_length=int(c["hop_length"]), log_epsilon=float(c["log_epsilon"]),
         local_top_k=int(c["local_top_k"]), subspace_window_frames=int(c["subspace_window_frames"]),
-        subspace_step_frames=int(c["subspace_step_frames"]),
-        max_freq_hz=float(c.get("max_freq_hz", 0)))
+        subspace_step_frames=int(c["subspace_step_frames"]), max_freq_hz=float(c.get("max_freq_hz", 0)))
     df = pd.read_csv(args.manifest)
     if "processing_status" in df:
         df = df[df["processing_status"].eq("ok")].copy()
     if args.limit_pairs:
         ids = df.ytid.drop_duplicates().head(args.limit_pairs)
         df = df[df.ytid.isin(ids)]
-    # Drop incomplete pairs after preprocessing.
     counts = df.groupby("ytid").label.agg(["count", "sum"])
     good = counts.index[(counts["count"] == 2) & (counts["sum"] == 1)]
     df = df[df.ytid.isin(good)].copy()
-    rows, angle_rows = [], []
-    for row in tqdm(df.itertuples(index=False), total=len(df), desc="Exact/randomized SVD"):
-        try:
-            audio, sr = sf.read(str(row.processed_path), dtype="float32", always_2d=False)
-            if np.asarray(audio).ndim == 2:
-                audio = np.asarray(audio).mean(axis=1)
-            lm = log_magnitude_spectrogram(audio, int(sr), cfg)
-            for method in ("exact", "randomized"):
-                f, angles = features_for(lm, cfg, args.rank, method, args.seed)
-                rec = {"sample_id": row.sample_id, "ytid": row.ytid, "label": int(row.label),
-                       "class_name": row.class_name, "generator": row.generator, "split": row.split,
-                       "method": method, **f}
-                rows.append(rec)
-                for j, angle in enumerate(angles):
-                    angle_rows.append({"sample_id": row.sample_id, "ytid": row.ytid,
-                        "label": int(row.label), "class_name": row.class_name,
-                        "method": method, "angle_index": j, "angle_deg": float(np.degrees(angle))})
-        except Exception as exc:
-            print(f"Skipping {row.sample_id}: {type(exc).__name__}: {exc}")
+    records = df.to_dict("records")
+    tasks = ((r, cfg, args.rank, args.seed) for r in records)
+    rows, angle_rows, errors = [], [], []
+    with tqdm(total=len(records), desc=f"Exact/randomized SVD ({args.workers} workers)") as bar:
+        if args.workers == 1:
+            iterator = map(_process_record, tasks)
+            for result, angles, error in iterator:
+                rows.extend(result); angle_rows.extend(angles)
+                if error: errors.append(error)
+                bar.update(1)
+        else:
+            with ProcessPoolExecutor(max_workers=args.workers, initializer=limit_worker_threads) as pool:
+                for result, angles, error in pool.map(_process_record, tasks, chunksize=args.chunksize):
+                    rows.extend(result); angle_rows.extend(angles)
+                    if error: errors.append(error)
+                    bar.update(1)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     feats = pd.DataFrame(rows)
+    if feats.empty:
+        raise SystemExit("No clips were processed successfully")
     feats.to_csv(args.output_dir / "features_long.csv", index=False)
     pd.DataFrame(angle_rows).to_csv(args.output_dir / "principal_angles.csv", index=False)
+    if errors:
+        (args.output_dir / "errors.txt").write_text("\n".join(errors) + "\n")
+    else:
+        (args.output_dir / "errors.txt").unlink(missing_ok=True)
 
-    # One row per clip with exact and randomized feature columns.
-    wide = feats.pivot(index=["sample_id","ytid","label","class_name","generator","split"],
-                       columns="method")
+    wide = feats.pivot(index=["sample_id","ytid","label","class_name","generator","split"], columns="method")
     wide.columns = [f"{method}_{feature}" for feature, method in wide.columns]
     wide = wide.reset_index()
     wide.to_csv(args.output_dir / "features_exact_vs_randomized.csv", index=False)
-
     metrics = regression_metrics(wide, args.seed)
     pd.DataFrame(metrics).to_csv(args.output_dir / "regression_metrics.csv", index=False)
-
     angles = pd.DataFrame(angle_rows)
     summary = angles.groupby(["method","class_name"]).angle_deg.agg(["count","mean","std","median"]).reset_index()
     summary.to_csv(args.output_dir / "angle_summary.csv", index=False)
     print(pd.DataFrame(metrics).to_string(index=False))
     print("\nPrincipal-angle summary:\n", summary.to_string(index=False))
-    print(f"\nOutputs: {args.output_dir}")
+    print(f"\nProcessed {len(feats) // 2} clips successfully; errors: {len(errors)}")
+    print(f"Outputs: {args.output_dir}")
 
 if __name__ == "__main__":
     main()

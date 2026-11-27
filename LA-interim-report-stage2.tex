@@ -75,9 +75,9 @@
 % Project card: one line each. Keep it consistent with your registration;
 % if something has changed, update it here and say so in the report.
 \newcommand{\carddomain}{Audio forensics / music provenance}
-\newcommand{\cardmethod}{Log-magnitude STFT; singular values and vector loadings; pairwise and class-specific low-rank spaces; KNN}
-\newcommand{\cardobject}{10-s mono clip; $L\in\mathbb{R}^{279\times858}$; pair matrix $[L_h\ L_a]$ and class stacks $A_h,A_a$}
-\newcommand{\cardalgorithms}{Exact per-clip/pair SVD; randomized class-stack SVD; distance-weighted KNN; paired bootstrap CI}
+\newcommand{\cardmethod}{Log-magnitude STFT spectrograms; exact SVD per clip, randomized SVD on the stacked matrix; singular-value and principal-angle features}
+\newcommand{\cardobject}{10-s mono clip; band-limited log-magnitude STFT $L\in\mathbb{R}^{279\times858}$; stacked training matrix $A=[L_1\cdots L_N]$}
+\newcommand{\cardalgorithms}{Exact NumPy/LAPACK SVD versus randomized SVD ($k=20$, $p=10$, power steps $q$)}
 \newcommand{\carddata}{3{,}693 caption-matched pairs from FakeMusicCaps (5 generators) and MusicCaps~\cite{FakeMusicCaps}}
 \newcommand{\cardreframing}{Evaluate low-rank spectral features as a binary detection method, not build a universal AI-music detector}
 \newcommand{\cardcode}{\url{https://github.com/pmozil/music-ai-spectra}}
@@ -199,10 +199,7 @@
 The full pipeline runs end to end on the complete paired dataset: download and
 matching, common preprocessing, spectrograms, exact per-clip SVD
 features, principal angles between windowed subspaces, and logistic
-regression on a caption-grouped split. The extension now adds singular-vector
-descriptors, one joint SVD per pair, class-specific stacked spaces and KNN;
-these new experiments still need to be run on the processed WAV corpus. Our first
-run reached 94\% accuracy, but
+regression on a caption-grouped split. Our first run reached 94\% accuracy, but
 a one-feature bandwidth baseline reached 96\%, so that result was a
 pipeline confound (Section~\ref{sec:confound}). After cropping the spectrogram
 to 6~kHz, the bandwidth baseline falls to chance (0.51), while the rank-20
@@ -234,11 +231,7 @@ take the logarithm of the magnitude and subtract the global mean:
 $L$ is dense, rectangular and short-and-wide ($F<T$), so $\rank L\le279$.
 
 \textbf{Per-clip features.} Each $L=U\Sigma V^\top$ is small, so we compute its
-SVD exactly. Besides the singular values, the extractor now describes squared
-loadings of the leading left vectors (frequency) and right vectors (time):
-centroid, spread and entropy. It also uses the diagonals of the leading
-subspace projectors (leverage scores), which are invariant to vector sign and
-rotations within the retained subspace. From the singular values we take the top-$k$ energy
+SVD exactly. From it we take the top-$k$ energy
 $\sum_{i\le k}\sigma_i^2/\|L\|_F^2$ (by Eckart--Young, $1-$ this is the squared
 relative error of the best rank-$k$ approximation), the ratios
 $\sigma_i/\sigma_1$, $\sigma_1/\|L\|_F$, and the entropy effective rank of Roy
@@ -254,35 +247,32 @@ are $\theta_i=\arccos\sigma_i(U_j^\top U_{j+1})$; their mean and standard
 deviation over the clip are features.
 
 \textbf{Randomized SVD.} Following Halko, Martinsson and Tropp~\cite{Halko},
-our range finder forms $Y=A\Omega$ with Gaussian $\Omega\in\mathbb{R}^{T\times\ell}$,
+our implementation
+forms $Y=A\Omega$ with Gaussian $\Omega\in\mathbb{R}^{T\times\ell}$,
 $\ell=k+p$, applies $q$ power steps $Q\leftarrow\operatorname{qr}(AA^\top Q)$,
-and solves a small projected problem. The library comparison streams blocks
-$L_n$ and accumulates $Q^\top AA^\top Q$ without storing the full matrix.
+and finishes with the small $\ell\times\ell$ problem. It reads $A=[L_1\cdots L_N]$
+one clip at a time, so the stacked matrix is never stored: with all 2{,}585
+training pairs it would have about $4.4$ million columns and take roughly 10~GB
+in double precision, while the algorithm keeps only $F\times\ell$ arrays.
+Instead of an SVD of $B=Q^\top A$ it takes the eigendecomposition of
+$BB^\top=\sum_n (Q^\top L_n)(Q^\top L_n)^\top$, which can be accumulated clip by
+clip. This squares the condition number, so singular values below
+$\sqrt{\varepsilon_{\rm mach}}\,\sigma_1\approx10^{-8}\sigma_1$ would be lost;
+the leading values we need are far above that (the 16th singular value of the
+shared basis is still $0.09\,\sigma_1$), so this is not a limitation here. The basis $Q$ is learnt on training clips only and gives two
+extra features per clip: the captured energy $\|Q^\top L\|_F^2/\|L\|_F^2$ and
+the relative residual.
 
-For the new class-space experiment we instead materialize two explicit
-training-only stacks, $A_h=[L_{h,1}\cdots L_{h,n}]$ and
-$A_a=[L_{a,1}\cdots L_{a,n}]$, as disk-backed matrices. The randomized SVD
-reads these matrices in column blocks, so only the matrix file (not a full RAM
-copy) and small work arrays are needed. Separate bases $Q_h$ and $Q_a$ give
-each clip four descriptors: captured energy and relative residual in each
-class space. We also compare the stacked spaces directly, not only their
-singular values or clip projections: the overlap matrix $C=Q_h^\top Q_a$
-provides principal angles $\theta_i=\arccos\sigma_i(C)$, and a maximum-weight
-assignment on $|C_{ij}|$ reports sign-invariant matched-vector cosines.
-Principal angles are the primary, rotation-invariant comparison when singular
-values are close; individual mode matches are descriptive. The KNN models use
-the projection descriptors, optionally combined with per-clip vector and
-pairwise-SVD features. All bases are learnt from training clips only.
-
-A single clip matrix is small ($279\times858$), so its exact SVD remains
-practical. Randomization is used for the much wider class-stacked matrices.
+A single clip matrix is small ($279\times858$), so its exact SVD takes
+milliseconds and all per-clip features use it. Randomization is needed only
+for the stacked matrix, which is where we use our own implementation.
 
 \section{First results}\label{sec:confound}
 All numbers are from one caption-grouped test split of 555 pairs ($n=1{,}110$
 clips), with logistic regression trained on the 2{,}585 training pairs. With
 $n=1{,}110$, the binomial 95\% half-width at 85\% accuracy is about $\pm0.02$, so
-differences below two points are within noise. A paired-bootstrap routine has been added, but the table below is still the
-original single run; no new confidence intervals are claimed until rerun.
+differences below two points are within noise; bootstrap intervals are not
+computed yet.
 
 \begin{figure}[t]
 \centering
@@ -423,8 +413,7 @@ the same accuracy as scikit-learn's and is 1.7--2 times faster.
 \item Our randomized SVD meets the $10^{-2}$ criterion only with two power
   steps, and the singular directions beyond the first few are not reliable
   because the tail of the spectrum is flat (Section~\ref{sec:library}).
-\item Paired-bootstrap intervals are implemented but not yet reported; the
-  existing table has not been rerun with the new evaluation code.
+\item No bootstrap confidence intervals: every result comes from one test split.
 \item The shared-basis features add almost nothing (0.732 to 0.739).
 \item Mustango is the weakest generator for both models (AI recall 0.70 and
   0.54); we do not yet know why.
@@ -448,33 +437,42 @@ the same accuracy as scikit-learn's and is 1.7--2 times faster.
   separate parameter from the global rank $k$.
 \end{itemize}
 
-\textbf{Implemented extension: vectors, pairs and class spaces.}
-\emph{Singular vectors.} Per-clip SVD now exports sign-invariant frequency
-loadings from $U$ and temporal loadings from $V$, using squared magnitudes,
-centroids, spreads, entropies and subspace leverage scores.
-\emph{Paired analysis.} For each caption match we compute one exact SVD of
-$[L_h\ L_a]$. The right singular vectors are split at the two clip boundaries;
-the energy share of each side, and each side's projection residual in the joint
-left subspace, become clip-level features.
-\emph{Human/AI spaces.} Two training-only stacked matrices, $A_h$ and $A_a$,
-are decomposed by randomized SVD. We compare their left singular-vector bases
-using principal angles and sign-invariant, optimally matched absolute cosines,
-in addition to storing the singular spectra. A distance-weighted KNN compares
-each clip's four projection-energy/residual features; a second KNN adds
-singular-vector and pairwise descriptors. The neighbour count is selected on
-the validation split. No PCA clustering or $k$-means is used.
-\emph{Uncertainty.} Balanced accuracy is reported with a percentile 95\% CI
-from 2{,}000 bootstrap resamples of caption groups, keeping all paired clips
-(and repeated captions) together.
+\textbf{Interim 1 discussion updates.} The discussion of interim report~1
+suggested three directions, which we will start exploring now.
+\begin{itemize}\itemsep0pt
+\item \emph{Use the singular vectors, not only the singular values.} So far the
+  vectors enter only through principal angles. The left vectors $U_k$ show
+  \emph{which} frequency patterns carry the energy and the right vectors $V_k$
+  show \emph{how} they evolve in time; generators may differ in these shapes
+  even when their singular-value profiles are similar, as for Mustango. We will
+  start with simple descriptors of $U_k$ and $V_k$ and with class subspaces:
+  a human and an AI basis learnt on the training clips with our randomized
+  SVD, and a classifier based on the residual of each clip after projection.
+\item \emph{Exploit the pairing.} Each AI clip has a human clip with the same
+  caption. Listening to paired clips, we found that they are not close
+  versions of each other: they are only loosely similar, in instrumentation
+  or tonality. The pairing therefore controls the musical content only in part,
+  but comparing the two clips should still remove some of the variation due
+  to genre and instrumentation. We will start with the principal angles between
+  the subspaces of the two clips of a pair and with one SVD of the joint
+  matrix $[L_{\rm human}\ L_{\rm AI}]$ per pair, checking how the energy of
+  each singular triplet splits between the two blocks of $V$.
+\item \emph{Go beyond logistic regression.} A linear model may miss non-linear
+  structure, and unsupervised methods show whether the classes separate
+  without labels. Following the discussion, we will try linear and RBF SVM and
+  $k$-nearest neighbours with the principal-angle distance between clip
+  subspaces, which compares the singular vectors directly rather than
+  summary features. Without labels, we will run $k$-means with 2 and 6
+  clusters on the PCA projection computed with our own SVD, and compare it
+  with spectral clustering and an MDS map of the same distances from the
+  course labs (adjusted Rand index, purity). Hyperparameters will be tuned on
+  the validation split.
+\end{itemize}
 
-The code and synthetic tests are in place. The bundle has no processed WAV
-corpus, so these new metrics are pending a local data run and are not reported
-as results here.
-
-\textbf{Plan to the final report (21 December).} By 4 December: run the new
-vector, pairwise and class-space experiments, then extend the library comparison
-to larger $N$ and measure leading-vector accuracy. By 14 December: compare
-classifiers and per-generator results, then freeze the analysis. By 21 December:
+\textbf{Plan to the final report (21 December).} By 4 December: add bootstrap
+intervals and extend the library comparison to larger $N$ and to the accuracy
+of the leading singular vectors. By 14 December: singular-vector,
+pair-based and classifier experiments, then freeze results. By 21 December:
 final report and recording.
 
 \section{Outline of the final report}
@@ -488,9 +486,9 @@ final report and recording.
   power steps, streaming Gram finish), cost and memory, numerical accuracy.
 \item \emph{Library comparison:} error of singular values and subspaces,
   measured time against predicted flops, effect of $q$.
-\item \emph{Detection results:} singular-vector and pairwise features,
-  human/AI stacked spaces, KNN, paired-bootstrap intervals, per-generator
-  results and rank analysis.
+\item \emph{Detection results:} features from singular values and vectors,
+  pair-based analyses, classifiers and clustering, bootstrap intervals,
+  per-generator results, rank analysis.
 \item \emph{Limitations and conclusion.}
 \end{enumerate}
 
