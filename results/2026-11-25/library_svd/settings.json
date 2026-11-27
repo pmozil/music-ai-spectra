@@ -1,0 +1,16 @@
+{
+  "manifest": "data/processed/manifest_harmonized.csv",
+  "config": "configs/default.json",
+  "output_dir": "artifacts/library_svd",
+  "split": "train",
+  "clip_counts": "[10, 25, 50, 100, 200]",
+  "rank": "20",
+  "oversample": "10",
+  "power_iters": "[0, 1, 2]",
+  "timing_power_iters": "1",
+  "repeats": "3",
+  "seed": "20261125",
+  "synthetic": "False",
+  "F": 279,
+  "ell": 30
+}
