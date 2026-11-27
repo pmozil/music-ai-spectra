@@ -187,3 +187,78 @@ def randomized_svd_matrix(
     values = np.sqrt(np.maximum(eigenvalues[order], 0.0))
     basis = q @ eigenvectors[:, order]
     return basis.astype(np.float32), values
+
+
+def compare_class_bases(
+    human_basis: np.ndarray,
+    ai_basis: np.ndarray,
+    human_singular_values: np.ndarray | None = None,
+    ai_singular_values: np.ndarray | None = None,
+) -> tuple[dict[str, float | int], list[dict[str, float | int]], list[dict[str, float | int]]]:
+    """Compare left singular-vector spaces learned from human and AI stacks.
+
+    Principal angles compare the retained subspaces and are invariant to signs
+    and rotations within nearly-degenerate singular subspaces. A Hungarian
+    assignment on absolute dot products additionally gives an interpretable,
+    sign-invariant mode-to-mode matching (but is less stable near repeated
+    singular values).
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    h = np.asarray(human_basis, dtype=np.float64)
+    a = np.asarray(ai_basis, dtype=np.float64)
+    if h.ndim != 2 or a.ndim != 2 or h.shape[0] != a.shape[0]:
+        raise ValueError("Bases must be 2-D and share the same feature dimension")
+    if h.shape[1] < 1 or a.shape[1] < 1:
+        raise ValueError("Both bases must contain at least one vector")
+    # QR removes small numerical loss of orthogonality from randomized SVD.
+    h, _ = np.linalg.qr(h, mode="reduced")
+    a, _ = np.linalg.qr(a, mode="reduced")
+    overlap = h.T @ a
+    principal_cosines = np.linalg.svd(overlap, compute_uv=False)
+    principal_cosines = np.clip(principal_cosines, 0.0, 1.0)
+    principal_angles = np.degrees(np.arccos(principal_cosines))
+
+    rows, cols = linear_sum_assignment(-np.abs(overlap))
+    order = np.argsort(rows)
+    rows, cols = rows[order], cols[order]
+    matched = np.abs(overlap[rows, cols])
+
+    weighted_match = float("nan")
+    if human_singular_values is not None and ai_singular_values is not None:
+        hs = np.asarray(human_singular_values, dtype=np.float64).reshape(-1)
+        av = np.asarray(ai_singular_values, dtype=np.float64).reshape(-1)
+        if hs.size >= h.shape[1] and av.size >= a.shape[1] and np.all(hs[:h.shape[1]] >= 0) and np.all(av[:a.shape[1]] >= 0):
+            hw = hs[rows] ** 2
+            aw = av[cols] ** 2
+            w = np.sqrt((hw / hw.sum()) * (aw / aw.sum())) if hw.sum() and aw.sum() else np.zeros_like(hw)
+            if w.sum() > 0:
+                weighted_match = float(np.sum(w * matched) / w.sum())
+
+    chordal_sq = float(np.sum(1.0 - principal_cosines ** 2))
+    summary: dict[str, float | int] = {
+        "human_rank": int(h.shape[1]),
+        "ai_rank": int(a.shape[1]),
+        "shared_rank": int(principal_cosines.size),
+        "mean_principal_angle_deg": float(np.mean(principal_angles)),
+        "median_principal_angle_deg": float(np.median(principal_angles)),
+        "max_principal_angle_deg": float(np.max(principal_angles)),
+        "mean_squared_principal_cosine": float(np.mean(principal_cosines ** 2)),
+        "normalized_chordal_distance": float(np.sqrt(chordal_sq / principal_cosines.size)),
+        "mean_matched_abs_cosine": float(np.mean(matched)),
+        "median_matched_abs_cosine": float(np.median(matched)),
+        "energy_weighted_matched_abs_cosine": weighted_match,
+    }
+    matched_rows = [
+        {
+            "human_mode": int(i + 1),
+            "ai_mode": int(j + 1),
+            "absolute_cosine_similarity": float(value),
+        }
+        for i, j, value in zip(rows, cols, matched)
+    ]
+    angle_rows = [
+        {"principal_component": int(i + 1), "cosine": float(c), "angle_deg": float(theta)}
+        for i, (c, theta) in enumerate(zip(principal_cosines, principal_angles))
+    ]
+    return summary, matched_rows, angle_rows

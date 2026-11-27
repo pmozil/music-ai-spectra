@@ -27,6 +27,7 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 from music_svd_detection.shared_basis import (
+    compare_class_bases,
     randomized_svd_matrix,
     shared_basis_clip_features,
     write_stacked_matrix,
@@ -321,13 +322,30 @@ def main() -> int:
         metrics_row(df, LOCAL_FEATURES, "local_svd_vectors_and_angles", args.seed, "logistic"),
     ]
 
-    human_basis, _ = fit_class_space(
+    human_basis, human_s = fit_class_space(
         df, 0, cfg, args.output_dir, class_space_rank, oversample,
         power_iters, args.stack_block_columns, args.seed, args.keep_stacked_matrices,
     )
-    ai_basis, _ = fit_class_space(
+    ai_basis, ai_s = fit_class_space(
         df, 1, cfg, args.output_dir, class_space_rank, oversample,
         power_iters, args.stack_block_columns, args.seed, args.keep_stacked_matrices,
+    )
+    alignment_summary, matched_vectors, principal_angles = compare_class_bases(
+        human_basis, ai_basis, human_s, ai_s
+    )
+    (args.output_dir / "class_space_comparison.json").write_text(
+        json.dumps(alignment_summary, indent=2)
+    )
+    pd.DataFrame(matched_vectors).to_csv(
+        args.output_dir / "class_space_vector_alignment.csv", index=False
+    )
+    pd.DataFrame(principal_angles).to_csv(
+        args.output_dir / "class_space_principal_angles.csv", index=False
+    )
+    print(
+        "Stacked-space alignment: "
+        f"mean principal angle={alignment_summary['mean_principal_angle_deg']:.2f} deg; "
+        f"mean matched |cos|={alignment_summary['mean_matched_abs_cosine']:.3f}"
     )
     space_df = add_class_space_features(df, cfg, human_basis, ai_basis)
     space_df.to_csv(args.output_dir / "features_with_class_spaces.csv", index=False)
@@ -352,6 +370,8 @@ def main() -> int:
         "oversample": oversample,
         "power_iterations": power_iters,
         "class_spaces": "separate randomized SVDs of explicit training-only matrices A_human=[L_i] and A_ai=[L_i], materialized as temporary disk-backed matrices",
+        "stacked_vector_comparison": "compare left singular-vector bases directly using principal angles from SVD(Q_human.T @ Q_ai), plus Hungarian-matched absolute vector cosines; principal angles are the rotation-invariant primary measure",
+        "stacked_vector_alignment": alignment_summary,
         "knn": "distance-weighted Euclidean KNN; k selected by validation balanced accuracy",
         "bootstrap": "percentile 95% CI of balanced accuracy; resample caption groups (all matched pairs sharing a caption together), 2000 replicates",
         "pairwise_svd": "one exact SVD of [L_human L_AI] per matched pair; side-specific right-vector block shares and joint-subspace projection residuals",

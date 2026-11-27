@@ -265,9 +265,14 @@ $A_a=[L_{a,1}\cdots L_{a,n}]$, as disk-backed matrices. The randomized SVD
 reads these matrices in column blocks, so only the matrix file (not a full RAM
 copy) and small work arrays are needed. Separate bases $Q_h$ and $Q_a$ give
 each clip four descriptors: captured energy and relative residual in each
-class space. The KNN models use these projection descriptors, optionally
-combined with per-clip vector and pairwise-SVD features. All bases are learnt
-from training clips only.
+class space. We also compare the stacked spaces directly, not only their
+singular values or clip projections: the overlap matrix $C=Q_h^\top Q_a$
+provides principal angles $\theta_i=\arccos\sigma_i(C)$, and a maximum-weight
+assignment on $|C_{ij}|$ reports sign-invariant matched-vector cosines.
+Principal angles are the primary, rotation-invariant comparison when singular
+values are close; individual mode matches are descriptive. The KNN models use
+the projection descriptors, optionally combined with per-clip vector and
+pairwise-SVD features. All bases are learnt from training clips only.
 
 A single clip matrix is small ($279\times858$), so its exact SVD remains
 practical. Randomization is used for the much wider class-stacked matrices.
@@ -452,8 +457,10 @@ $[L_h\ L_a]$. The right singular vectors are split at the two clip boundaries;
 the energy share of each side, and each side's projection residual in the joint
 left subspace, become clip-level features.
 \emph{Human/AI spaces.} Two training-only stacked matrices, $A_h$ and $A_a$,
-are decomposed by randomized SVD. A distance-weighted KNN compares each clip's
-four projection-energy/residual features in these spaces; a second KNN adds
+are decomposed by randomized SVD. We compare their left singular-vector bases
+using principal angles and sign-invariant, optimally matched absolute cosines,
+in addition to storing the singular spectra. A distance-weighted KNN compares
+each clip's four projection-energy/residual features; a second KNN adds
 singular-vector and pairwise descriptors. The neighbour count is selected on
 the validation split. No PCA clustering or $k$-means is used.
 \emph{Uncertainty.} Balanced accuracy is reported with a percentile 95\% CI

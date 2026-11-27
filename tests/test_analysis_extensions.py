@@ -81,3 +81,36 @@ def test_pair_bootstrap_balanced_accuracy_is_pair_grouped_and_reproducible():
     again = train_evaluate.paired_bootstrap_balanced_accuracy(y, pred, groups, n_bootstrap=300, seed=3)
     assert 0 <= lo <= hi <= 1
     assert (lo, hi) == again
+
+
+def test_stacked_class_basis_comparison_is_sign_and_rotation_invariant():
+    from music_svd_detection.shared_basis import compare_class_bases
+
+    # The second basis spans exactly the same 2-D plane, but its modes are rotated.
+    human = np.eye(4, dtype=np.float64)[:, :2]
+    theta = np.deg2rad(37.0)
+    rotation = np.array([[np.cos(theta), -np.sin(theta)],
+                         [np.sin(theta), np.cos(theta)]])
+    ai = human @ rotation
+    summary, matches, angles = compare_class_bases(
+        human, ai, np.array([4.0, 2.0]), np.array([3.0, 1.0])
+    )
+    assert np.allclose([r["angle_deg"] for r in angles], 0.0, atol=1e-6)
+    assert np.isclose(summary["mean_squared_principal_cosine"], 1.0, atol=1e-8)
+    assert summary["mean_matched_abs_cosine"] < 1.0  # mode-level view sees rotation
+    assert len(matches) == 2
+
+    # A sign flip must not alter the direct vector similarity.
+    summary2, _, _ = compare_class_bases(human, -human)
+    assert np.isclose(summary2["mean_matched_abs_cosine"], 1.0)
+
+
+def test_stacked_class_basis_comparison_detects_orthogonal_spaces():
+    from music_svd_detection.shared_basis import compare_class_bases
+
+    human = np.eye(4, dtype=np.float64)[:, :2]
+    ai = np.eye(4, dtype=np.float64)[:, 2:]
+    summary, _, angles = compare_class_bases(human, ai)
+    assert np.allclose([r["angle_deg"] for r in angles], 90.0)
+    assert np.isclose(summary["mean_squared_principal_cosine"], 0.0)
+    assert np.isclose(summary["mean_matched_abs_cosine"], 0.0)
