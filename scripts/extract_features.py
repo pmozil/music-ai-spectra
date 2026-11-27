@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract exact per-clip SVD and sliding-window principal-angle features."""
+"""Extract singular-value, singular-vector and sliding-window angle features."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from music_svd_detection.spectral import (
     SpectralConfig,
     log_magnitude_spectrogram,
     principal_angle_features,
-    singular_value_features,
+    svd_clip_features,
 )
 
 
@@ -73,7 +73,7 @@ def main() -> int:
             if int(sr) != spec_cfg.sample_rate:
                 raise ValueError(f"expected {spec_cfg.sample_rate} Hz, got {sr}")
             logmag = log_magnitude_spectrogram(audio, int(sr), spec_cfg)
-            row.update(singular_value_features(logmag, top_k=spec_cfg.local_top_k))
+            row.update(svd_clip_features(logmag, top_k=spec_cfg.local_top_k, vector_modes=int(cfg.get("vector_modes", 4))))
             row.update(
                 principal_angle_features(
                     logmag,

@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import compare_exact_randomized as compare  # noqa: E402
 import generator_report  # noqa: E402
 import rank_sweep  # noqa: E402
+import train_evaluate  # noqa: E402
 from music_svd_detection.spectral import SpectralConfig  # noqa: E402
 
 FEATS = compare.BASE_FEATURES
@@ -68,3 +69,15 @@ def test_fixed_window_rank_keeps_angles_constant():
     # and equals the compare script's angles at k = 32
     ref, _ = compare.features_for(lm, cfg, 32, "exact", 7)
     assert np.isclose(rows[0]["principal_angle_mean_deg"], ref["principal_angle_mean_deg"], atol=1e-4)
+
+
+def test_pair_bootstrap_balanced_accuracy_is_pair_grouped_and_reproducible():
+    y = np.array([0, 1] * 8)
+    pred = np.array([0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 0, 1, 1])
+    # Some captions occur in multiple matched pairs; resampling the caption
+    # keeps those pairs together as well as preserving each human/AI pair.
+    groups = np.array(["caption_a"] * 4 + ["caption_b"] * 4 + ["caption_c"] * 4 + ["caption_d"] * 4)
+    lo, hi = train_evaluate.paired_bootstrap_balanced_accuracy(y, pred, groups, n_bootstrap=300, seed=3)
+    again = train_evaluate.paired_bootstrap_balanced_accuracy(y, pred, groups, n_bootstrap=300, seed=3)
+    assert 0 <= lo <= hi <= 1
+    assert (lo, hi) == again
