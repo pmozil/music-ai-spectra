@@ -268,11 +268,10 @@ milliseconds and all per-clip features use it. Randomization is needed only
 for the stacked matrix, which is where we use our own implementation.
 
 \section{First results}\label{sec:confound}
-All numbers are from one caption-grouped test split of 555 pairs ($n=1{,}110$
-clips), with logistic regression trained on the 2{,}585 training pairs. With
-$n=1{,}110$, the binomial 95\% half-width at 85\% accuracy is about $\pm0.02$, so
-differences below two points are within noise; bootstrap intervals are not
-computed yet.
+The table and figure report the initial caption-grouped test split of 555
+pairs ($n=1{,}110$ clips), with logistic regression trained on 2{,}585 pairs.
+The later expanded feature evaluation, including caption-group bootstrap
+intervals, is summarized below.
 
 \begin{figure}[t]
 \centering
@@ -297,7 +296,7 @@ principal angles, stability) from the exact SVD with $k=20$; the
 \toprule
 Model & Full band (first run) & Cropped to 6 kHz \\
 \midrule
-Bandwidth only (on the processed spectrogram) & --- & 0.506 / 0.513 \\
+Bandwidth only (on the processed spectrogram) & --- & 0.506 / 0.514 \\
 Bandwidth only (on the raw audio) & 0.963 / 0.933 & \emph{not comparable} \\
 Rank-20, exact SVD & 0.941 / 0.980 & 0.835 / 0.923 \\
 15 local features, exact SVD & 0.901 / 0.956 & 0.732 / 0.825 \\
@@ -326,23 +325,37 @@ only the top 20 values and is therefore capped at 20, gave the same accuracy
 (0.849).
 
 
-\textbf{Which rank matters.} When the window rank follows the global rank,
-accuracy rises from 0.75 at $k=10$ to 0.88 at $k=30$--$40$ and falls to
-0.78--0.79 for $k\ge60$ (Figure~\ref{fig:results}c, orange). With the window rank
-fixed at 32, accuracy is flat at 0.88--0.89 (AUC $\approx0.95$) for every
-global rank from 10 to 80 (blue). So both the rise and the fall come from the
-principal-angle features: a window rank of about 30--40 of the $w=64$ frames
-works best, and a global rank of 10 is then enough. Our explanation for the
-fall, not yet tested, is that as $r\to w$ the window basis spans almost the
-whole column space of the window, and with 32 shared frames many angles
-between neighbours become zero.
+\textbf{Which rank matters.} With the window rank fixed at 32, the updated
+sweep over global ranks 8, 16, 32, 40 and 64 gives 0.892--0.894 accuracy for
+exact SVD and 0.893--0.896 for randomized SVD (AUC 0.948--0.951). Thus the
+classification result is stable over this range, and randomized SVD closely
+tracks exact SVD. A window rank of about 30--40 for $w=64$ remains the useful
+setting; the explanation for the drop when the window rank approaches $w$
+is still a hypothesis.
 
-\textbf{Per generator} (Figure~\ref{fig:results}b). The models are trained on all generators and tested on
+\textbf{Per generator, initial split} (Figure~\ref{fig:results}b). The models are trained on all generators and tested on
 each generator's clips with their paired human clips (101--130 test pairs,
 $\pm0.04$--$0.06$). Rank-20 accuracy is 0.88 for audioldm2, 0.86 MusicLDM,
 0.83 MusicGen, 0.81 Stable Audio Open and 0.78 Mustango, the hardest (only 70\%
 of its clips are detected as AI). Mustango is also the hardest for the
 15-feature model (0.67).
+
+\textbf{Updated feature ablation.} On the expanded evaluation ($n=1{,}110$),
+windowed principal angles are the strongest individual descriptor: balanced
+accuracy is 0.883 (95\% caption-group bootstrap CI 0.865--0.901; AUC 0.944),
+against 0.614/0.662 for singular values and 0.621/0.683 for vector descriptors.
+All local features reach 0.908 (CI 0.890--0.924; AUC 0.961; paired ranking
+0.960). A class-conditional GMM reaches 0.787/0.844. Three-fold cross-fitted
+class-space KNN reaches 0.688/0.741; adding vector and pairwise features gives
+0.718/0.790. The stacked human/AI bases have mean principal angle
+22.71$^\circ$ and mean matched $|\cos|=0.615$.
+
+\textbf{Unseen generators.} In leave-one-generator-out evaluation with the local-feature logistic model, each
+generator and its matched human clips are excluded from training and
+validation by caption group. Balanced accuracy is 0.846 for MusicGen Medium,
+0.894 for AudioLDM2, 0.906 for MusicLDM, 0.858 for Mustango and 0.751 for
+Stable Audio Open (macro mean 0.851; macro AUC 0.916). Stable Audio Open is the
+hardest held-out generator, but remains above chance.
 
 \section{Comparison with a library routine}\label{sec:library}
 \textbf{What we compare.} For $N\in\{10,25,50,100,200\}$ training clips
@@ -411,13 +424,15 @@ the same accuracy as scikit-learn's and is 1.7--2 times faster.
 \textbf{Not working yet.}
 \begin{itemize}\itemsep0pt
 \item Our randomized SVD meets the $10^{-2}$ criterion only with two power
-  steps, and the singular directions beyond the first few are not reliable
-  because the tail of the spectrum is flat (Section~\ref{sec:library}).
-\item No bootstrap confidence intervals: every result comes from one test split.
-\item The shared-basis features add almost nothing (0.732 to 0.739).
-\item Mustango is the weakest generator for both models (AI recall 0.70 and
-  0.54); we do not yet know why.
-\item The drop in accuracy when the window rank approaches the window width is
+  steps; directions near the flat spectral tail remain less reliable
+  (Section~\ref{sec:library}).
+\item Bootstrap CIs are now computed; paired model-difference intervals still
+  need interpretation.
+\item Cross-fitted class-space KNN remains weaker than local window-angle
+  features (0.688; 0.718 with vector/pairwise descriptors).
+\item Stable Audio Open is the hardest held-out generator (0.751 balanced
+  accuracy); the reason remains unclear.
+\item The accuracy drop when window rank approaches window width is still
   explained only by a hypothesis.
 \end{itemize}
 
@@ -437,43 +452,20 @@ the same accuracy as scikit-learn's and is 1.7--2 times faster.
   separate parameter from the global rank $k$.
 \end{itemize}
 
-\textbf{Interim 1 discussion updates.} The discussion of interim report~1
-suggested three directions, which we will start exploring now.
-\begin{itemize}\itemsep0pt
-\item \emph{Use the singular vectors, not only the singular values.} So far the
-  vectors enter only through principal angles. The left vectors $U_k$ show
-  \emph{which} frequency patterns carry the energy and the right vectors $V_k$
-  show \emph{how} they evolve in time; generators may differ in these shapes
-  even when their singular-value profiles are similar, as for Mustango. We will
-  start with simple descriptors of $U_k$ and $V_k$ and with class subspaces:
-  a human and an AI basis learnt on the training clips with our randomized
-  SVD, and a classifier based on the residual of each clip after projection.
-\item \emph{Exploit the pairing.} Each AI clip has a human clip with the same
-  caption. Listening to paired clips, we found that they are not close
-  versions of each other: they are only loosely similar, in instrumentation
-  or tonality. The pairing therefore controls the musical content only in part,
-  but comparing the two clips should still remove some of the variation due
-  to genre and instrumentation. We will start with the principal angles between
-  the subspaces of the two clips of a pair and with one SVD of the joint
-  matrix $[L_{\rm human}\ L_{\rm AI}]$ per pair, checking how the energy of
-  each singular triplet splits between the two blocks of $V$.
-\item \emph{Go beyond logistic regression.} A linear model may miss non-linear
-  structure, and unsupervised methods show whether the classes separate
-  without labels. Following the discussion, we will try linear and RBF SVM and
-  $k$-nearest neighbours with the principal-angle distance between clip
-  subspaces, which compares the singular vectors directly rather than
-  summary features. Without labels, we will run $k$-means with 2 and 6
-  clusters on the PCA projection computed with our own SVD, and compare it
-  with spectral clustering and an MDS map of the same distances from the
-  course labs (adjusted Rand index, purity). Hyperparameters will be tuned on
-  the validation split.
-\end{itemize}
+\textbf{Interim 1 discussion updates.} The proposed extensions are now
+implemented: sign-invariant left/right singular-vector descriptors, one joint
+SVD per matched pair, separate human/AI stacked spaces with cross-fitted
+training projections, KNN and class-conditional GMM. The ablation indicates
+that temporal window-subspace angles carry most of the classification signal;
+individual singular values and vector descriptors alone are much weaker.
+SVMs and unsupervised clustering remain possible extensions, not completed
+experiments.
 
-\textbf{Plan to the final report (21 December).} By 4 December: add bootstrap
-intervals and extend the library comparison to larger $N$ and to the accuracy
-of the leading singular vectors. By 14 December: singular-vector,
-pair-based and classifier experiments, then freeze results. By 21 December:
-final report and recording.
+\textbf{Plan to the final report (21 December).} By 4 December: inspect
+paired-bootstrap model differences and extend the library comparison to
+larger $N$ and singular-vector accuracy. By 14 December: complete the
+subspace-stability analyses and freeze results. By 21 December: final
+report and recording.
 
 \section{Outline of the final report}
 \begin{enumerate}\itemsep0pt
@@ -486,9 +478,9 @@ final report and recording.
   power steps, streaming Gram finish), cost and memory, numerical accuracy.
 \item \emph{Library comparison:} error of singular values and subspaces,
   measured time against predicted flops, effect of $q$.
-\item \emph{Detection results:} features from singular values and vectors,
+\item \emph{Detection results:} temporal subspace stability, singular values and vectors,
   pair-based analyses, classifiers and clustering, bootstrap intervals,
-  per-generator results, rank analysis.
+  paired-bootstrap intervals, leave-one-generator-out results and rank analysis.
 \item \emph{Limitations and conclusion.}
 \end{enumerate}
 
