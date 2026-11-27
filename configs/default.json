@@ -8,7 +8,7 @@
   "loudness_lra": 7,
   "n_fft": 1024,
   "hop_length": 256,
-  "log_epsilon": 1e-8,
+  "log_epsilon": 1e-08,
   "local_top_k": 8,
   "subspace_window_frames": 64,
   "subspace_step_frames": 32,
@@ -19,5 +19,10 @@
   "train_fraction": 0.7,
   "validation_fraction": 0.15,
   "test_fraction": 0.15,
-  "max_freq_hz": 6000
+  "max_freq_hz": 6000,
+  "class_space_rank": 16,
+  "class_space_oversample": 8,
+  "class_space_power_iterations": 2,
+  "vector_modes": 4,
+  "window_rank": 32
 }

@@ -1,63 +1,47 @@
-# AI-generated music detection with SVD and subspace stability
+# AI-generated music detection with SVD and subspace comparison
 
-Please filly me out >~<
-
-I've left some instructions here, but some more info in README would be nice
+The pipeline compares caption-matched human and AI clips using log-magnitude STFTs, singular values and singular-vector loading profiles. It also forms one joint SVD per pair and learns separate low-rank human/AI spaces from stacked training matrices. KNN is evaluated in the two class spaces; balanced-accuracy uncertainty is estimated by bootstrapping complete matched pairs.
 
 ## Setup
 
-Requirements: Python 3.10+, FFmpeg (`ffmpeg` and `ffprobe` must be on `PATH`),
-    and enough disk space for the 12.9 GB FakeMusicCaps archive plus extracted files and processed WAVs.
+Requirements: Python 3.10+, FFmpeg (`ffmpeg` and `ffprobe` on `PATH`), and disk space for the source audio, processed WAVs and temporary class-stacked matrices.
 
 ```bash
-cd music-ai-svd-project
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e '.[test]'
-ffmpeg -version
-ffprobe -version
 pytest
 ```
 
-## Download data
+## Run
 
-First download the captions and 10-second human clips. Start with a tiny smoke test before all 5,521 rows:
-
-```bash
-python scripts/fetch_musiccaps.py --limit 10 --workers 1
-# Then, when the sample works:
-python scripts/fetch_musiccaps.py --workers 2
-# Retry failed/unavailable links later:
-python scripts/fetch_musiccaps.py --retry-failed --workers 1
-```
-
-The script downloads the public metadata CSV directly
-(no Hugging Face `datasets` loader is needed), stores metadata at `data/raw/musiccaps_metadata.csv`,
-    raw 10-second audio at `data/raw/musiccaps_audio/`, and append-as-it-goes status rows at `data/raw/musiccaps_download_status.csv`.
-
-Download and extract FakeMusicCaps (expect a multi-GB download and extraction):
-
-```bash
-python scripts/download_fakemusiccaps.py --extract
-```
-
-The default extracted root is `data/raw/fakemusiccaps/extracted/`.
-
-## Run the pipeline
+After downloading and preprocessing the audio as described in the existing download scripts:
 
 ```bash
 python scripts/build_manifest.py
 python scripts/preprocess_audio.py
 python scripts/extract_features.py
-python scripts/train_evaluate.py
+python scripts/pairwise_svd.py
+python scripts/train_evaluate.py --pairwise-features data/processed/pairwise_svd_features.csv
 ```
 
-Outputs:
+`extract_features.py` computes exact per-clip SVD features. Vector descriptors use squared singular-vector loadings (sign invariant): frequency distributions from the left vectors and time distributions from the right vectors, including leading-mode and subspace-leverage summaries.
 
-- `data/processed/manifest.csv`: balanced paired metadata with caption-group split.
-- `data/processed/manifest_harmonized.csv`: canonical audio paths plus raw provenance and bandwidth baseline.
-- `data/processed/features.csv`: exact per-clip SVD features, principal-angle stability, and bandwidth.
-- `artifacts/metrics.csv`: test-set accuracy, balanced accuracy, ROC-AUC, precision/recall/F1, confusion-matrix counts, and validation-selected threshold for three models.
-- `artifacts/shared_spectral_basis.npy`: randomized shared left-singular basis learned only on training clips.
-- `artifacts/features_with_shared_basis.csv`: local and shared-basis features.
+`pairwise_svd.py` groups each caption-matched human/AI pair and computes exactly one SVD of `[L_human L_AI]`. It writes side-specific projections and the share of each joint right singular vector contributed by that clip.
+
+`train_evaluate.py` builds two training-only stacked matrices, `A_human=[L_1 ... L_n]` and `A_AI=[L_1 ... L_n]`, materializes each as a temporary disk-backed matrix, and computes a truncated randomized SVD. The matrix file is removed after its class basis is fitted unless `--keep-stacked-matrices` is passed. The two left-singular-vector bases are also compared directly: principal angles measure subspace overlap, while a maximum-weight assignment on absolute dot products matches individual modes without sign ambiguity. Principal angles are the robust primary measure when singular values are close, since individual modes can rotate within a nearly-degenerate subspace. Clips are projected into both spaces, and distance-weighted KNN uses the resulting projection energies/residuals. KNN neighbourhood size is selected on the validation split.
+
+Balanced-accuracy 95% confidence intervals use 2,000 percentile-bootstrap replicates, resampling caption groups as units (all matched pairs sharing a caption stay together). This preserves both pairwise and repeated-caption dependence.
+
+## Outputs
+
+- `data/processed/features.csv`: singular values, singular-vector descriptors and windowed principal-angle features.
+- `data/processed/pairwise_svd_features.csv`: one joint-SVD feature row per side of every pair.
+- `artifacts/human_space_basis.npy`, `artifacts/ai_space_basis.npy`: randomized class-space bases learned from training clips only.
+- `artifacts/features_with_class_spaces.csv`: class-space projection features for all splits.
+- `artifacts/metrics.csv`: baseline/local models and KNN class-space results, including paired-bootstrap 95% CIs for balanced accuracy.
+- `artifacts/class_space_comparison.json`, `class_space_principal_angles.csv`, `class_space_vector_alignment.csv`: direct human-vs-AI stacked-basis comparison.
+- `artifacts/experiment.json`: settings and method descriptions.
+
+The current bundle does not include the processed WAV corpus, so run the commands above locally to generate new experiment metrics; no results are fabricated in the interim report.

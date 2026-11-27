@@ -208,18 +208,26 @@ def main() -> int:
     ap.add_argument("--config", type=Path, default=Path("configs/default.json"))
     ap.add_argument("--output-dir", type=Path, default=Path("artifacts/rank_sweep"))
     ap.add_argument("--ranks", default="10,20,40,80")
-    ap.add_argument("--window-rank", type=int, default=0,
-                    help="fix the rank of the sliding-window bases (principal angles) for every k; "
-                         "0 = same as k, like compare_exact_randomized.py")
+    ap.add_argument("--window-rank", type=int, default=None,
+                    help="fix the sliding-window basis rank; default uses configs/default.json window_rank; "
+                         "0 = use each swept k")
     ap.add_argument("--limit-pairs", type=int, default=0)
     ap.add_argument("--include-validation", action="store_true",
                     help="also process validation clips (the classifier does not use them)")
     ap.add_argument("--workers", type=int, default=4, help="parallel processes (1 = no parallelism)")
     ap.add_argument("--seed", type=int, default=20261112)
     args = ap.parse_args()
-    ranks = sorted({int(r) for r in args.ranks.split(",") if r.strip()})
+    try:
+        ranks = sorted({int(r) for r in args.ranks.split(",") if r.strip()})
+    except ValueError:
+        ap.error("--ranks must be comma-separated positive integers")
+    if not ranks or min(ranks) < 1 or args.workers < 1:
+        ap.error("--ranks and --workers must be positive")
 
     c = json.loads(args.config.read_text())
+    window_rank = int(c.get("window_rank", 0) if args.window_rank is None else args.window_rank)
+    if window_rank < 0:
+        ap.error("--window-rank must be non-negative")
     cfg = SpectralConfig(sample_rate=int(c["sample_rate"]), n_fft=int(c["n_fft"]),
         hop_length=int(c["hop_length"]), log_epsilon=float(c["log_epsilon"]),
         local_top_k=int(c["local_top_k"]), subspace_window_frames=int(c["subspace_window_frames"]),
@@ -238,7 +246,7 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     cache = args.output_dir / "features_long.csv"
     info = args.output_dir / "sweep_settings.json"
-    settings = {"ranks": ranks, "window_rank": args.window_rank, "seed": args.seed, "config": c,
+    settings = {"ranks": ranks, "window_rank": window_rank, "seed": args.seed, "config": c,
                 "manifest": str(args.manifest)}
     done: set[str] = set()
     if cache.exists():
@@ -258,9 +266,9 @@ def main() -> int:
             part = todo[i:i + chunk]
             if args.workers > 1:
                 from joblib import Parallel, delayed
-                res = Parallel(n_jobs=args.workers)(delayed(process)(r, cfg, ranks, args.seed, args.window_rank) for r in part)
+                res = Parallel(n_jobs=args.workers)(delayed(process)(r, cfg, ranks, args.seed, window_rank) for r in part)
             else:
-                res = [process(r, cfg, ranks, args.seed, args.window_rank) for r in part]
+                res = [process(r, cfg, ranks, args.seed, window_rank) for r in part]
             rows = [x for r in res for x in r]
             if rows:
                 pd.DataFrame(rows).to_csv(cache, mode="a", header=not cache.exists(), index=False)
@@ -270,7 +278,7 @@ def main() -> int:
     feats = feats[feats["sample_id"].isin(df["sample_id"])]
     summary = summarise(feats, ranks, args.seed, args.output_dir)
     summary.to_csv(args.output_dir / "rank_sweep_metrics.csv", index=False)
-    plot(summary, args.output_dir / "rank_sweep.png", args.window_rank)
+    plot(summary, args.output_dir / "rank_sweep.png", window_rank)
     cols = ["rank", "method", "n_test", "accuracy", "roc_auc",
             "median_effective_rank_human", "median_effective_rank_ai", "mean_topk_energy_human", "mean_topk_energy_ai"]
     pd.set_option("display.width", 200)

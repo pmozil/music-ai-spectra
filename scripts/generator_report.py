@@ -87,9 +87,9 @@ def threshold_model(df: pd.DataFrame, col: str):
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--compare-dir", type=Path, help="output dir of compare_exact_randomized.py or one rank_K dir of rank_sweep.py")
-    ap.add_argument("--train-eval-dir", type=Path, help="output dir of train_evaluate.py (needs features_with_shared_basis.csv)")
+    ap.add_argument("--train-eval-dir", type=Path, help="output dir of train_evaluate.py (uses features_with_class_spaces.csv when present)")
     ap.add_argument("--features", type=Path, default=Path("data/processed/features.csv"),
-                    help="used only if --train-eval-dir has no features_with_shared_basis.csv (e.g. --no-shared-basis)")
+                    help="fallback feature CSV when the train-evaluate output is unavailable")
     ap.add_argument("--manifest", type=Path, default=Path("data/processed/manifest_harmonized.csv"),
                     help="source of raw_bandwidth_cutoff_hz for the --min-raw-bandwidth-hz filter")
     ap.add_argument("--processed-bandwidth", type=Path, default=Path("artifacts/processed_bandwidth.csv"),
@@ -120,22 +120,46 @@ def main() -> int:
             per_gen += r
 
     if args.train_eval_dir:
-        path = args.train_eval_dir / "features_with_shared_basis.csv"
-        df = pd.read_csv(path if path.exists() else args.features)
+        candidates = [
+            args.train_eval_dir / "features_with_class_spaces.csv",
+            args.train_eval_dir / "features_with_shared_basis.csv",
+        ]
+        path = next((candidate for candidate in candidates if candidate.exists()), args.features)
+        df = pd.read_csv(path)
         if "feature_status" in df:
             df = df[df["feature_status"].eq("ok")]
         if args.min_raw_bandwidth_hz:
             bw = bw.combine_first(df.set_index("sample_id")["raw_bandwidth_cutoff_hz"])
         df = apply_bandwidth_filter(df, bw, args.min_raw_bandwidth_hz)
         pairs_info["train_evaluate"] = df["ytid"].nunique()
-        local = [c for c in te.LOCAL_FEATURES if c in df.columns]
-        models = [("raw_bandwidth_only (raw, ignore)", te.BASELINE_FEATURES),
-                  ("local_svd_15feat", local)]
-        if "shared_basis_energy_fraction" in df.columns:
-            models.append(("local_plus_shared_basis_17feat",
-                           local + ["shared_basis_energy_fraction", "shared_basis_relative_residual"]))
-        for name, cols in models:
-            test, prob, pred, _ = te.fit_predict(df, cols, args.train_eval_seed)
+        vector = sorted(
+            c for c in df.columns
+            if c.startswith(("u_mode", "v_mode", "u_subspace", "v_subspace"))
+            and pd.api.types.is_numeric_dtype(df[c])
+        )
+        local_values = [c for c in te.VALUE_FEATURES if c in df.columns]
+        local_angles = [c for c in te.ANGLE_FEATURES if c in df.columns]
+        local_all = local_values + vector + local_angles
+        models = [
+            ("raw_bandwidth_only_diagnostic", "logistic", te.BASELINE_FEATURES),
+            ("local_svd_values_only", "logistic", local_values),
+            ("local_svd_vectors_only", "logistic", vector),
+            ("local_svd_window_angles_only", "logistic", local_angles),
+            ("local_svd_all_features", "logistic", local_all),
+        ]
+        if all(c in df.columns for c in te.SPACE_FEATURES):
+            models.append(("crossfit_stacked_space_knn", "knn", te.SPACE_FEATURES))
+            pair_cols = [c for c in df.columns if c.startswith("pair_") and pd.api.types.is_numeric_dtype(df[c])]
+            combined = te.SPACE_FEATURES + vector + pair_cols
+            if len(combined) > len(te.SPACE_FEATURES):
+                models.append(("stacked_space_vectors_pairs_knn", "knn", combined))
+        for name, estimator, cols in models:
+            if not cols:
+                continue
+            if estimator == "knn":
+                test, prob, pred, _ = te.fit_predict_knn(df, cols, args.train_eval_seed)
+            else:
+                test, prob, pred, _ = te.fit_predict_logistic(df, cols, args.train_eval_seed)
             o, r = breakdown(name, test, prob, pred)
             overall.append(o)
             per_gen += r
